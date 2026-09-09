@@ -1,14 +1,6 @@
 import React from 'react';
 import { Download, Filter, LayoutGrid, LayoutList, Search, Star } from 'lucide-react';
 
-const pipeline = [
-  { label: 'Applied', count: 2, color: 'bg-[#475569]', numberColor: 'text-slate-400' },
-  { label: 'Screening', count: 2, color: 'bg-[#6366F1]', numberColor: 'text-indigo-400' },
-  { label: 'Interview', count: 3, color: 'bg-[#D97706]', numberColor: 'text-amber-500' },
-  { label: 'Offer', count: 1, color: 'bg-[#10B981]', numberColor: 'text-emerald-500' },
-  { label: 'Hired', count: 1, color: 'bg-[#059669]', numberColor: 'text-emerald-400' },
-];
-
 export default function CandidatesView({
   darkMode,
   candidates,
@@ -24,13 +16,19 @@ export default function CandidatesView({
   onExport,
   onViewProfile,
 }) {
+  const pipeline = ['Applied', 'Screening', 'Interview', 'Offer', 'Hired'].map((label) => ({
+    label,
+    count: candidates.filter((candidate) => candidate.stage === label).length,
+    color: { Applied: 'bg-[#475569]', Screening: 'bg-[#6366F1]', Interview: 'bg-[#D97706]', Offer: 'bg-[#10B981]', Hired: 'bg-[#059669]' }[label],
+    numberColor: { Applied: 'text-slate-400', Screening: 'text-indigo-400', Interview: 'text-amber-500', Offer: 'text-emerald-500', Hired: 'text-emerald-400' }[label],
+  }));
   return (
     <main className="candidate-page flex flex-1 min-h-0 w-full flex-col overflow-hidden">
       <div className="candidate-summary flex-none space-y-5">
       <div className="candidate-intro flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
         <div>
           <h1 className="text-2xl font-black text-slate-900 dark:text-white">Candidates</h1>
-          <p className="mt-0.5 text-base text-slate-500 dark:text-gray-400">10 total candidates across all active roles</p>
+          <p className="mt-0.5 text-base text-slate-500 dark:text-gray-400">{candidates.length} analyzed candidates</p>
         </div>
         <button onClick={onExport} className={`flex items-center gap-2 rounded-xl border px-5 py-3 text-sm font-bold transition ${darkMode ? 'bg-[#111622] border-[#1D2636] text-white hover:bg-[#161D2D]' : 'bg-white border-slate-200 text-slate-800 hover:bg-slate-50'}`}>
           <Download className="h-4 w-4" /> Export CSV
@@ -82,7 +80,9 @@ export default function CandidatesView({
       </div>
 
       <div className="candidate-results min-h-0 flex-1 overflow-y-auto">
-      {viewMode === 'grid' ? (
+      {!candidates.length ? (
+        <div className="rounded-2xl border border-dashed border-slate-300 px-6 py-12 text-center text-sm text-slate-500 dark:border-[#1D2636] dark:text-gray-400">No candidates analyzed yet.</div>
+      ) : viewMode === 'grid' ? (
         <div className="candidate-grid grid grid-cols-1 gap-5 pb-8 md:grid-cols-3 lg:grid-cols-5">
           {candidates.map((candidate) => <CandidateCard key={candidate.id} candidate={candidate} darkMode={darkMode} onToggleStar={onToggleStar} onViewProfile={onViewProfile} />)}
         </div>

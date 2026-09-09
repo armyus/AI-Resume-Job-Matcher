@@ -14,6 +14,7 @@ import { analyzeResumeAndJD, createRole, fetchAnalyticsData, logoutUser } from '
 import CandidateDashboard from './views/CandidateDashboard';
 
 // ================= CANDIDATES DATASET (DASHBOARD WORKBENCH) =================
+/* Legacy demo candidate fixtures removed from the active recruiter data path.
 const CANDIDATES_DATA = [
   {
     id: 'alex',
@@ -313,21 +314,35 @@ const CANDIDATES_PIPELINE_DATA = [
   }
 ];
 
+*/
 // ================= OPEN ROLES DATASET =================
-const OPEN_ROLES_DATA = [
-  { id: '#402', title: 'Senior Full Stack Engineer', status: 'Active', dotColor: 'bg-rose-500', dept: 'Engineering', location: 'San Francisco, CA', days: '12 days ago', salary: '$160k–$210k', candidates: 47, newCandidates: '+6 new', avgScore: '74%', manager: 'Rachel Kim' },
-  { id: '#398', title: 'ML Infrastructure Engineer', status: 'Active', dotColor: 'bg-rose-500', dept: 'AI/ML', location: 'Remote (US)', days: '19 days ago', salary: '$180k–$240k', candidates: 31, newCandidates: '+3 new', avgScore: '68%', manager: 'Tom Nguyen' },
-  { id: '#391', title: 'Product Manager — Growth', status: 'Active', dotColor: 'bg-amber-500', dept: 'Product', location: 'New York, NY', days: '28 days ago', salary: '$140k–$180k', candidates: 89, newCandidates: '+11 new', avgScore: '71%', manager: 'Aisha Patel' },
-  { id: '#385', title: 'Senior UX Designer', status: 'Paused', dotColor: 'bg-amber-500', dept: 'Design', location: 'San Francisco, CA', days: '35 days ago', salary: '$130k–$165k', candidates: 23, newCandidates: '', avgScore: '79%', manager: 'Lena Strauss' },
-  { id: '#377', title: 'DevOps / Platform Engineer', status: 'Active', dotColor: 'bg-rose-500', dept: 'Infrastructure', location: 'Remote (Global)', days: '41 days ago', salary: '$150k–$195k', candidates: 18, newCandidates: '+2 new', avgScore: '63%', manager: 'James Wu' },
-  { id: '#370', title: 'Customer Success Manager', status: 'Active', dotColor: 'bg-slate-500', dept: 'Revenue', location: 'Austin, TX', days: '52 days ago', salary: '$90k–$120k', candidates: 62, newCandidates: '+4 new', avgScore: '66%', manager: 'Maria Santos' },
-  { id: '#361', title: 'Data Analyst — BI', status: 'Closed', dotColor: 'bg-slate-500', dept: 'Analytics', location: 'Chicago, IL', days: '60 days ago', salary: '$100k–$130k', candidates: 44, newCandidates: '', avgScore: '77%', manager: 'Chris Davis' },
-  { id: '#348', title: 'Head of Security Engineering', status: 'Draft', dotColor: 'bg-rose-500', dept: 'Security', location: 'San Francisco, CA', days: '75 days ago', salary: '$220k–$280k', candidates: 0, newCandidates: '', avgScore: '—', manager: '—' }
-];
+const EMPTY_CANDIDATE = {
+  id: 'empty',
+  name: 'No candidate analyzed',
+  role: 'Select a role and upload a resume',
+  reqId: '',
+  location: 'Location unavailable',
+  email: 'Email unavailable',
+  initials: '--',
+  date: '',
+  baseScore: 0,
+  statusText: 'Awaiting resume analysis',
+  expYrs: 'Not available',
+  reqExpYrs: 'Not available',
+  matchedSkills: [],
+  missingSkills: [],
+  adjacentSkills: [],
+  riskTitle: 'No analysis yet',
+  verdictTitle: 'No analysis yet',
+  strengths: [],
+  risks: [],
+  questions: [],
+  scores: { tech: 0, exp: 0, edu: 0, cultural: 0 },
+};
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
-  const [selectedJobId, setSelectedJobId] = useState('#402');
+  const [selectedJobId, setSelectedJobId] = useState('');
   const [availableJobs, setAvailableJobs] = useState([]);
   const [selectedJob, setSelectedJob] = useState(null);
 
@@ -340,10 +355,10 @@ export default function App() {
   const [activeSubTab, setActiveSubTab] = useState('Skills Gap');
   const [viewMode, setViewMode] = useState('grid'); // Candidate gallery is the default reference view
   
-  const [selectedCandidate, setSelectedCandidate] = useState(CANDIDATES_DATA[0]);
-  const [candidatesPipelineList, setCandidatesPipelineList] = useState(CANDIDATES_PIPELINE_DATA);
+  const [selectedCandidate, setSelectedCandidate] = useState(EMPTY_CANDIDATE);
+  const [candidatesPipelineList, setCandidatesPipelineList] = useState([]);
   const [weights, setWeights] = useState({ skills: 50, experience: 35, education: 15 });
-  const [computedScore, setComputedScore] = useState(87);
+  const [computedScore, setComputedScore] = useState(0);
 
   // Search & Filters for Candidates Page
   const [candidateSearchQuery, setCandidateSearchQuery] = useState('');
@@ -406,6 +421,10 @@ useEffect(() => {
 }, [currentUser]);
 
   useEffect(() => {
+    if (selectedCandidate.id === 'empty') {
+      setComputedScore(0);
+      return;
+    }
     const base = selectedCandidate.baseScore;
     const factor = (weights.skills * 0.50 + weights.experience * 0.35 + weights.education * 0.15) / 50;
     const recalculated = Math.min(99, Math.max(40, Math.round(base * factor)));
@@ -453,6 +472,9 @@ useEffect(() => {
         department: newRoleDepartment,
         location: newRoleLocation,
       });
+      const response = await fetch('/api/jobs', { credentials: 'include' });
+      const data = await response.json();
+      setAvailableJobs(data.jobs || []);
       setNewRoleTitle('');
       setActiveModal(null);
       triggerToast('New role posted to the active pipeline.');
@@ -472,12 +494,16 @@ useEffect(() => {
 
   if (job) {
     setSelectedJob(job);
+    setSelectedCandidate(EMPTY_CANDIDATE);
+    setCandidatesPipelineList([]);
     triggerToast(`Active role changed to ${job.title}`);
   }
 };
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
 if (!file) return;
+
+if (isUploading) return;
 
 if (!selectedJobId) {
   triggerToast('Please select a job role first.');
@@ -486,49 +512,40 @@ if (!selectedJobId) {
 }
 
 try {
+  setIsUploading(true);
     triggerToast('Analyzing resume against selected role...');
 
     const response = await analyzeResumeAndJD(file, selectedJobId);
-
-    console.log('Resume + JD analysis:', response);
-
-    // Store the analysis result
-    setAnalysisResult(response);
-
-    triggerToast('Resume analyzed successfully.');
-} catch (error) {
-    console.error('Resume analysis failed:', error);
-
-    const message =
-        error?.response?.data?.error ||
-        'Resume analysis failed. Please try again.';
-
-    triggerToast(message);
-} finally {
-    e.target.value = '';
-}
-
-setIsUploading(true);
-
-    try {
-      const response = await analyzeResumeAndJD(file, selectedJobId);
-      const candidate = response.candidate;
-      const match = response.match;
+      const candidate = response.candidate || {};
+      const match = response.match || {};
       const recommendation = match.recommendation || {};
       const score = Math.round(match.overall_score || 0);
       const matchedSkills = match.skill_match?.matched_skills || [];
       const missingSkills = match.skill_match?.missing_skills || [];
       const realCandidate = {
-        ...CANDIDATES_DATA[0],
         id: `api-${Date.now()}`,
         name: candidate.name || file.name.replace(/\.[^.]+$/, ''),
+        role: selectedJob?.title || selectedJobId,
+        reqId: selectedJobId,
+        score: `${score}%`,
+        stage: 'Analyzed',
+        stageColor: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20',
+        verdict: recommendation.recommendation || 'Review Match',
+        verdictColor: score >= 70 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400',
+        starred: false,
+        avatarColor: 'bg-indigo-600',
+        topSkills: matchedSkills.slice(0, 3),
         baseScore: score,
         statusText: recommendation.recommendation || 'AI Match Complete',
         matchedSkills,
         missingSkills,
         adjacentSkills: [],
-        expYrs: `${candidate.experience?.years || 0} yrs`,
-        reqExpYrs: `${response.job?.minimum_experience_years || 0}+ yrs`,
+        expYrs: Array.isArray(candidate.experience) && candidate.experience.length ? candidate.experience.join(', ') : 'Not available',
+        reqExpYrs: response.job?.minimum_experience_years ? `${response.job.minimum_experience_years}+ yrs` : 'Not specified',
+        location: candidate.location || 'Location unavailable',
+        email: candidate.email || 'Email unavailable',
+        initials: (candidate.name || file.name).split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase(),
+        date: new Date().toLocaleDateString(),
         scores: {
           tech: Math.round(match.skill_match?.score || 0),
           exp: Math.round(match.experience_match?.score || 0),
@@ -538,24 +555,25 @@ setIsUploading(true);
         verdictTitle: recommendation.recommendation || 'Review Match',
         strengths: recommendation.strengths || [],
         risks: recommendation.gaps || [],
+        questions: Array.isArray(recommendation.questions) ? recommendation.questions : [],
       };
       setSelectedCandidate(realCandidate);
-      setCandidatesPipelineList((previous) => [realCandidate, ...previous]);
+      setCandidatesPipelineList((previous) => [realCandidate, ...previous.filter((item) => item.name !== realCandidate.name)]);
       fetchAnalyticsData().then(setAnalyticsData).catch(() => {});
       setIsUploading(false);
       triggerToast(`AI Analysis Complete! Candidate matched at ${score}%.`);
     } catch (error) {
-      setIsUploading(false);
-      triggerToast(error.response?.data?.error || 'AI service unavailable. Demo data is still active.');
+      triggerToast(error.response?.data?.error || 'Resume analysis failed. Please try again.');
     } finally {
+      setIsUploading(false);
       e.target.value = '';
     }
   };
 
   // Live Filtering for Roles
-  const filteredRoles = OPEN_ROLES_DATA.filter((role) => {
+  const filteredRoles = availableJobs.filter((role) => {
     const matchesStatus = activeStatusFilter === 'All' || role.status === activeStatusFilter;
-    const matchesDept = selectedDept === 'All Departments' || role.dept === selectedDept;
+    const matchesDept = selectedDept === 'All Departments' || (role.department || role.dept) === selectedDept;
     const matchesSearch = role.title.toLowerCase().includes(roleSearchQuery.toLowerCase()) || 
                           role.id.toLowerCase().includes(roleSearchQuery.toLowerCase());
     return matchesStatus && matchesDept && matchesSearch;
@@ -756,10 +774,12 @@ if (currentUser.role === 'Candidate') {
             <div className={`border rounded-2xl p-3.5 ${darkMode ? 'bg-[#111622] border-[#1D2636]' : 'bg-white border-[#E2E8F0]'}`}>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-[10px] font-bold tracking-wider uppercase text-slate-400 dark:text-gray-400">CANDIDATE QUEUE</span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/10 text-indigo-500">4</span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/10 text-indigo-500">{candidatesPipelineList.length}</span>
               </div>
               <div className="space-y-1.5">
-                {CANDIDATES_DATA.map((c) => {
+                {candidatesPipelineList.length === 0 ? (
+                  <p className="py-3 text-xs text-slate-500 dark:text-gray-400">No candidates analyzed yet.</p>
+                ) : candidatesPipelineList.map((c) => {
                   const isSelected = selectedCandidate.id === c.id;
                   return (
                     <button
@@ -1031,10 +1051,10 @@ if (currentUser.role === 'Candidate') {
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {[
-                { label: 'Total Open Roles', val: '6', sub: '+2 this month', color: 'text-indigo-600 dark:text-indigo-400' },
-                { label: 'Total Applicants', val: '270', sub: 'Across all active roles', color: 'text-emerald-500' },
-                { label: 'Avg. Match Score', val: '70%', sub: 'All active pipelines', color: 'text-purple-500' },
-                { label: 'Avg. Time to Fill', val: '38d', sub: 'Last 90 days', color: 'text-amber-500' }
+                { label: 'Total Open Roles', val: availableJobs.length, sub: 'From backend', color: 'text-indigo-600 dark:text-indigo-400' },
+                { label: 'Total Applicants', val: candidatesPipelineList.length, sub: 'Analyzed candidates', color: 'text-emerald-500' },
+                { label: 'Avg. Match Score', val: candidatesPipelineList.length ? `${Math.round(candidatesPipelineList.reduce((total, candidate) => total + candidate.baseScore, 0) / candidatesPipelineList.length)}%` : '0%', sub: 'Analyzed candidates', color: 'text-purple-500' },
+                { label: 'Avg. Time to Fill', val: '—', sub: 'No data available', color: 'text-amber-500' }
               ].map((s, idx) => (
                 <div key={idx} className={`p-4 rounded-2xl border ${darkMode ? 'bg-[#111622] border-[#1D2636]' : 'bg-white border-[#E2E8F0]'}`}>
                   <p className={`text-2xl font-black ${s.color}`}>{s.val}</p>
@@ -1102,7 +1122,7 @@ if (currentUser.role === 'Candidate') {
             {filteredRoles.map((role, idx) => (
               <div 
                 key={idx} 
-                onClick={() => { setActiveTab('Dashboard'); triggerToast(`Switched active role to ${role.title}`); }}
+                onClick={() => { handleJobChange(role.id); setActiveTab('Dashboard'); }}
                 className={`p-4 rounded-2xl border flex flex-col items-stretch justify-between gap-4 cursor-pointer transition sm:flex-row sm:items-center hover:border-indigo-500/50 ${darkMode ? 'bg-[#111622] border-[#1D2636] hover:bg-[#161D2D]' : 'bg-white border-[#E2E8F0] hover:bg-slate-50'}`}
               >
                 <div className="space-y-1.5">
@@ -1121,10 +1141,10 @@ if (currentUser.role === 'Candidate') {
                   </div>
 
                   <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600 dark:text-gray-400">
-                    <span className="flex items-center gap-1 font-medium"><Briefcase className="w-3.5 h-3.5 text-slate-400 dark:text-gray-400"/> {role.dept}</span>
-                    <span className="flex items-center gap-1 font-medium"><MapPin className="w-3.5 h-3.5 text-slate-400 dark:text-gray-400"/> {role.loc}</span>
-                    <span className="flex items-center gap-1 font-medium"><Clock className="w-3.5 h-3.5 text-slate-400 dark:text-gray-400"/> {role.days}</span>
-                    <span className="font-semibold text-slate-800 dark:text-gray-200">{role.salary}</span>
+                    <span className="flex items-center gap-1 font-medium"><Briefcase className="w-3.5 h-3.5 text-slate-400 dark:text-gray-400"/> {role.department || 'Department unavailable'}</span>
+                    <span className="flex items-center gap-1 font-medium"><MapPin className="w-3.5 h-3.5 text-slate-400 dark:text-gray-400"/> {role.location || 'Location unavailable'}</span>
+                    <span className="flex items-center gap-1 font-medium"><Clock className="w-3.5 h-3.5 text-slate-400 dark:text-gray-400"/> {role.status || 'Open'}</span>
+                    <span className="font-semibold text-slate-800 dark:text-gray-200">{role.company || 'Company unavailable'}</span>
                   </div>
                 </div>
 
@@ -1171,7 +1191,7 @@ if (currentUser.role === 'Candidate') {
           onToggleStar={toggleStar}
           onExport={() => triggerToast('Exporting Candidate Pipeline CSV...')}
           onViewProfile={(candidate) => {
-            setSelectedCandidate(CANDIDATES_DATA.find((item) => item.id === candidate.id) || CANDIDATES_DATA[0]);
+            setSelectedCandidate(candidatesPipelineList.find((item) => item.id === candidate.id) || EMPTY_CANDIDATE);
             setActiveTab('Dashboard');
             triggerToast(`Viewing ${candidate.name}'s Profile`);
           }}
@@ -1346,7 +1366,7 @@ if (currentUser.role === 'Candidate') {
                   {/* View Action Button */}
                   <div>
                     <button 
-                      onClick={() => { setSelectedCandidate(CANDIDATES_DATA[0]); setActiveTab('Dashboard'); triggerToast(`Viewing ${cand.name}'s Dashboard Workbench`); }} 
+                      onClick={() => { setSelectedCandidate(cand); setActiveTab('Dashboard'); triggerToast(`Viewing ${cand.name}'s Dashboard Workbench`); }} 
                       className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold transition shadow-sm"
                     >
                       View
@@ -1412,7 +1432,7 @@ if (currentUser.role === 'Candidate') {
 
                   {/* View Profile Action Button */}
                   <button 
-                    onClick={() => { setSelectedCandidate(CANDIDATES_DATA[0]); setActiveTab('Dashboard'); triggerToast(`Viewing ${cand.name}'s Profile`); }}
+                    onClick={() => { setSelectedCandidate(cand); setActiveTab('Dashboard'); triggerToast(`Viewing ${cand.name}'s Profile`); }}
                     className="w-full py-2.5 rounded-xl border border-indigo-500/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-600 hover:text-white font-medium text-sm transition shadow-sm mt-1"
                   >
                     View Profile

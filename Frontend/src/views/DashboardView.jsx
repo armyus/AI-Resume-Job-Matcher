@@ -45,12 +45,7 @@ export default function DashboardView({ candidateData, onFileUpload }) {
           </div>
 
           <div className="space-y-2">
-            {[
-              { name: 'Alex Morgan', date: 'Sep 5, 2026', score: '88%', active: true },
-              { name: 'Priya Sharma', date: 'Sep 4, 2026', score: '74%', color: 'text-amber-500 bg-amber-500/10' },
-              { name: 'Marcus Chen', date: 'Sep 3, 2026', score: '61%', color: 'text-rose-500 bg-rose-500/10' },
-              { name: 'Sofia Reyes', date: 'Sep 2, 2026', score: '91%', color: 'text-emerald-500 bg-emerald-500/10' }
-            ].map((c, i) => (
+            {candidateData ? [candidateData].map((c, i) => (
               <div
                 key={i}
                 className={`flex items-center justify-between p-2.5 rounded-xl border transition ${
@@ -72,7 +67,7 @@ export default function DashboardView({ candidateData, onFileUpload }) {
                   {c.score}
                 </span>
               </div>
-            ))}
+            )) : <p className="py-3 text-xs text-[var(--text-muted)]">No candidates analyzed yet.</p>}
           </div>
         </div>
       </div>
@@ -88,13 +83,13 @@ export default function DashboardView({ candidateData, onFileUpload }) {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-lg font-extrabold text-[var(--text-primary)]">Alex Morgan</h2>
+                <h2 className="text-lg font-extrabold text-[var(--text-primary)]">{candidateData?.name || 'No candidate analyzed'}</h2>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/10 text-indigo-500">New</span>
               </div>
-              <p className="text-xs font-semibold text-[var(--text-muted)]">Senior Full Stack Engineer</p>
+              <p className="text-xs font-semibold text-[var(--text-muted)]">{candidateData?.role || 'Select a role and upload a resume'}</p>
               <div className="flex items-center gap-3 mt-1 text-[11px] text-[var(--text-muted)]">
-                <span className="flex items-center gap-1"><MapPin className="w-3 h-3"/> San Francisco, CA</span>
-                <span className="flex items-center gap-1"><Mail className="w-3 h-3"/> alex.morgan@email.com</span>
+                <span className="flex items-center gap-1"><MapPin className="w-3 h-3"/> {candidateData?.location || 'Location unavailable'}</span>
+                <span className="flex items-center gap-1"><Mail className="w-3 h-3"/> {candidateData?.email || 'Email unavailable'}</span>
               </div>
             </div>
           </div>
@@ -107,7 +102,7 @@ export default function DashboardView({ candidateData, onFileUpload }) {
         {/* Score & Weighting Controls Card */}
         <div className="bg-[var(--bg-card)] border border-[var(--border-card)] rounded-2xl p-5 grid grid-cols-12 gap-4 items-center">
           <div className="col-span-5 flex justify-center border-r border-[var(--border-card)] pr-4">
-            <ScoreGauge score={87} />
+            <ScoreGauge score={candidateData?.baseScore || 0} />
           </div>
 
           {/* Dynamic Weight Sliders */}
@@ -140,8 +135,8 @@ export default function DashboardView({ candidateData, onFileUpload }) {
             {/* Experience Match Bar */}
             <div className="pt-2 border-t border-[var(--border-card)] space-y-1">
               <div className="flex justify-between text-[11px] font-semibold">
-                <span className="text-[var(--text-muted)]">Candidate Experience: 6.5 yrs</span>
-                <span className="text-emerald-500 font-bold">JD Req: 5+ yrs</span>
+                <span className="text-[var(--text-muted)]">Candidate Experience: {candidateData?.expYrs || 'Not available'}</span>
+                <span className="text-emerald-500 font-bold">JD Req: {candidateData?.reqExpYrs || 'Not specified'}</span>
               </div>
               <div className="w-full h-2 rounded-full bg-[var(--bg-input)] overflow-hidden">
                 <div className="h-full bg-emerald-500 rounded-full" style={{ width: '85%' }}></div>
@@ -179,7 +174,7 @@ export default function DashboardView({ candidateData, onFileUpload }) {
                 <span className="px-2 py-0.2 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-500">7</span>
               </div>
               <div className="flex flex-wrap gap-1.5">
-                {['React.js', 'TypeScript', 'Node.js', 'GraphQL', 'PostgreSQL', 'REST APIs', 'Git/CI-CD'].map((s) => (
+                {(candidateData?.matchedSkills || []).map((s) => (
                   <span key={s} className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
                     {s}
                   </span>
@@ -200,7 +195,7 @@ export default function DashboardView({ candidateData, onFileUpload }) {
                 </span>
               </div>
               <div className="flex flex-wrap gap-1.5">
-                {['Docker', 'AWS ECS', 'Kubernetes'].map((s) => (
+                {(candidateData?.missingSkills || []).map((s) => (
                   <span key={s} className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-rose-500/10 text-rose-500 border border-rose-500/20">
                     {s}
                   </span>
@@ -233,19 +228,18 @@ export default function DashboardView({ candidateData, onFileUpload }) {
         {/* AI Verdict Box */}
         <div className="bg-[var(--bg-card)] border border-[var(--border-card)] rounded-2xl p-4 space-y-3">
           <div className="flex items-center gap-2 text-emerald-500 font-bold text-xs uppercase tracking-wider">
-            <CheckCircle2 className="w-4 h-4" /> AI Verdict: Proceed to Screening
+            <CheckCircle2 className="w-4 h-4" /> AI Verdict: {candidateData?.verdictTitle || 'No analysis yet'}
           </div>
 
           <div className="space-y-2 text-xs">
             <p className="font-bold text-indigo-500">Key Strengths</p>
             <ul className="list-disc pl-4 text-[var(--text-muted)] space-y-1">
-              <li>Strong frontend ecosystem — React, TypeScript & GraphQL fully aligned.</li>
-              <li>6.5 yrs exceeds 5 yr requirement; high-velocity trajectory.</li>
+              {(candidateData?.strengths || []).map((strength) => <li key={strength}>{strength}</li>)}
             </ul>
 
             <p className="font-bold text-amber-500 pt-1">Primary Risk Areas</p>
             <ul className="list-disc pl-4 text-[var(--text-muted)] space-y-1">
-              <li>Lacks direct Docker/Kubernetes experience — critical for DevOps rotation.</li>
+              {(candidateData?.risks || []).map((risk) => <li key={risk}>{risk}</li>)}
             </ul>
           </div>
         </div>
@@ -254,12 +248,7 @@ export default function DashboardView({ candidateData, onFileUpload }) {
         <div className="bg-[var(--bg-card)] border border-[var(--border-card)] rounded-2xl p-4 space-y-3">
           <span className="text-[10px] font-bold tracking-wider uppercase text-indigo-500">AI Interview Questions</span>
           
-          <div className="p-3 rounded-xl bg-[var(--bg-input)] border border-[var(--border-card)] text-xs space-y-1">
-            <p className="font-bold text-amber-500">Cloud/DevOps Gap</p>
-            <p className="text-[var(--text-muted)] leading-relaxed">
-              "How have you handled deployment pipelines without direct Docker experience? Walk us through a production deployment you owned."
-            </p>
-          </div>
+          {(candidateData?.questions || []).map((question) => <div key={question.text} className="p-3 rounded-xl bg-[var(--bg-input)] border border-[var(--border-card)] text-xs space-y-1"><p className="font-bold text-amber-500">{question.topic}</p><p className="text-[var(--text-muted)] leading-relaxed">{question.text}</p></div>)}
         </div>
 
         {/* Action Controls */}

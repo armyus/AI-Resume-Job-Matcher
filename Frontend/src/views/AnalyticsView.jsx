@@ -173,10 +173,11 @@ function Card({ title, subtitle, children, className = '' }) {
 
 export default function AnalyticsView({ analyticsData, onExport }) {
   const [period, setPeriod] = useState('Last 6 months');
-  const hasLiveData = analyticsData?.total_applications > 0;
-  const totalApplications = hasLiveData ? analyticsData.total_applications : 371;
-  const averageMatchScore = hasLiveData ? `${analyticsData.average_match_score}%` : '72.4%';
-  const screeningPassRate = hasLiveData ? `${analyticsData.screening_pass_rate}%` : '54.8%';
+  const hasLiveData = Boolean(analyticsData);
+  const totalApplications = analyticsData?.total_applications || 0;
+  const averageMatchScore = `${analyticsData?.average_match_score || 0}%`;
+  const screeningPassRate = `${analyticsData?.screening_pass_rate || 0}%`;
+  const roleCount = analyticsData?.roles || 0;
   return <main className="min-h-0 flex-1 overflow-y-auto bg-[var(--bg-app)]">
     <div className="flex flex-col items-start justify-between gap-5 border-b border-[var(--border-card)] px-4 py-6 sm:flex-row sm:items-center sm:px-10 sm:py-9">
       <div><h1 className="text-2xl font-black text-[var(--text-primary)]">Analytics</h1><p className="mt-1 text-base text-[var(--text-muted)]">Recruiting performance and AI matching intelligence</p></div>
@@ -185,12 +186,12 @@ export default function AnalyticsView({ analyticsData, onExport }) {
 
     <div className="space-y-7 p-4 sm:p-10">
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-6">
-        <Metric label="Total Applications" value={totalApplications} trend={hasLiveData ? 'Live' : '+23%'} detail={hasLiveData ? 'from current AI session' : 'vs last quarter'} color="text-[#6366F1]" />
-        <Metric label="Avg. AI Match Score" value={averageMatchScore} trend={hasLiveData ? 'Live' : '+4.1pt'} detail="across all roles" color="text-emerald-500" />
+        <Metric label="Total Applications" value={totalApplications} trend={hasLiveData ? 'Live' : 'No data'} detail={hasLiveData ? 'from current AI session' : 'No applications analyzed'} color="text-[#6366F1]" />
+        <Metric label="Avg. AI Match Score" value={averageMatchScore} trend={hasLiveData ? 'Live' : 'No data'} detail="across all roles" color="text-emerald-500" />
         <Metric label="Offer Acceptance Rate" value="66.7%" trend="-5.2pt" detail="12 of 18 offers" color="text-amber-500" negative direction="down" />
         <Metric label="Avg. Time to Hire" value="36d" trend="-8d" detail="vs 44d last quarter" color="text-violet-400" direction="down" />
-        <Metric label="Screening Pass Rate" value={screeningPassRate} trend={hasLiveData ? 'Live' : '+2.3pt'} detail={hasLiveData ? 'scores at or above 60%' : '148 of 270 applicants'} color="text-blue-500" />
-        <Metric label="AI Accuracy Rate" value="91%" trend="+3pt" detail="Verdicts confirmed" color="text-emerald-500" />
+        <Metric label="Screening Pass Rate" value={screeningPassRate} trend={hasLiveData ? 'Live' : 'No data'} detail={hasLiveData ? 'scores at or above 60%' : 'No screening data'} color="text-blue-500" />
+        <Metric label="Open Roles" value={roleCount} trend={hasLiveData ? 'Live' : 'No data'} detail={hasLiveData ? 'available roles' : 'No role data'} color="text-emerald-500" />
       </section>
 
       <section className="grid grid-cols-1 gap-5 xl:grid-cols-3">
