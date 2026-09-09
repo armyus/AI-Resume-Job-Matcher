@@ -1,0 +1,153 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg-app: #EEF2F6;
+    --bg-card: #FFFFFF;
+    --border-card: #E2E8F0;
+    --text-primary: #0F172A;
+    --text-muted: #64748B;
+    --bg-input: #F8FAFC;
+  }
+
+  .dark {
+    --bg-app: #0B0F17;
+    --bg-card: #111622;
+    --border-card: #1D2636;
+    --text-primary: #F3F4F6;
+    --text-muted: #9CA3AF;
+    --bg-input: #131B2A;
+  }
+
+  body {
+    background-color: var(--bg-app);
+    color: var(--text-primary);
+    font-family: 'Inter', sans-serif;
+    min-height: 100vh;
+  }
+}
+
+/* Custom Sleek Scrollbars */
+::-webkit-scrollbar-button {
+  display: none !important;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #2A3447;
+  border-radius: 9999px;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #6366F1;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #6366F1;
+}
+
+/* Candidates page — scoped so the Dashboard and Open Roles layouts remain untouched. */
+.candidate-page {
+  min-height: 0;
+  padding-top: 24px;
+}
+
+.candidate-intro,
+.candidate-pipeline,
+.candidate-grid {
+  margin-right: 32px;
+  margin-left: 32px;
+}
+
+.candidate-pipeline {
+  min-height: 0;
+  padding: 14px 16px 12px !important;
+}
+
+.candidate-pipeline .pt-5 { padding-top: 14px; }
+.candidate-pipeline div[class~='h-[98px]'] { height: 80px; }
+.candidate-pipeline div[class~='h-[75px]'] { height: 60px; }
+.candidate-pipeline div[class~='h-[50px]'] { height: 40px; }
+.candidate-pipeline div[class~='h-[25px]'] { height: 20px; }
+
+.candidate-pipeline-bar {
+  margin-top: auto;
+}
+
+.candidate-toolbar {
+  flex: none;
+  padding: 14px 32px;
+  border-top: 1px solid var(--border-card);
+  border-bottom: 1px solid var(--border-card);
+}
+
+.candidate-card {
+  min-height: 226px;
+  padding: 20px !important;
+}
+
+.candidate-results {
+  min-height: 0;
+  padding-top: 20px;
+  overscroll-behavior: contain;
+}
+
+/* The app shell owns the viewport; only this flex child can scroll. */
+.candidate-screen .candidate-page {
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (max-width: 1100px) {
+  .candidate-toolbar { align-items: flex-start; flex-direction: column; }
+  .candidate-toolbar > div:first-child { width: 100%; }
+  .candidate-toolbar > div:last-child { align-self: flex-end; }
+}
+
+@media (max-width: 700px) {
+  .candidate-intro, .candidate-pipeline, .candidate-grid { margin-right: 16px; margin-left: 16px; }
+  .candidate-toolbar { padding: 16px; }
+}
+
+@media (max-width: 1023px) {
+  .candidate-screen .candidate-page {
+    overflow-y: auto;
+  }
+
+  .candidate-screen .candidate-results {
+    flex: none;
+    overflow-y: visible;
+  }
+}
+
+@media (max-width: 1279px) {
+  .dashboard-workbench {
+    display: block !important;
+    overflow-y: auto !important;
+  }
+
+  .dashboard-sidebar,
+  .dashboard-profile,
+  .dashboard-verdict {
+    display: block;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+}

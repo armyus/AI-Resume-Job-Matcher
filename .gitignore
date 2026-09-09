@@ -1,0 +1,19 @@
+# Virtual environment
+venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# IDE
+.vscode/
+.idea/
+
+# Environment variables
+.env
+
+# Generated outputs
+outputs/*
+
+# Model/cache files
+models/*
