@@ -357,6 +357,7 @@ export default function App() {
   
   const [selectedCandidate, setSelectedCandidate] = useState(EMPTY_CANDIDATE);
   const [candidatesPipelineList, setCandidatesPipelineList] = useState([]);
+  const [candidateAnalysesByJob, setCandidateAnalysesByJob] = useState({});
   const [weights, setWeights] = useState({ skills: 50, experience: 35, education: 15 });
   const [computedScore, setComputedScore] = useState(0);
 
@@ -494,8 +495,7 @@ useEffect(() => {
 
   if (job) {
     setSelectedJob(job);
-    setSelectedCandidate(EMPTY_CANDIDATE);
-    setCandidatesPipelineList([]);
+    setSelectedCandidate(candidateAnalysesByJob[jobId] || EMPTY_CANDIDATE);
     triggerToast(`Active role changed to ${job.title}`);
   }
 };
@@ -558,7 +558,8 @@ try {
         questions: Array.isArray(recommendation.questions) ? recommendation.questions : [],
       };
       setSelectedCandidate(realCandidate);
-      setCandidatesPipelineList((previous) => [realCandidate, ...previous.filter((item) => item.name !== realCandidate.name)]);
+      setCandidateAnalysesByJob((previous) => ({ ...previous, [selectedJobId]: realCandidate }));
+      setCandidatesPipelineList((previous) => [realCandidate, ...previous.filter((item) => item.id !== realCandidate.id)]);
       fetchAnalyticsData().then(setAnalyticsData).catch(() => {});
       setIsUploading(false);
       triggerToast(`AI Analysis Complete! Candidate matched at ${score}%.`);

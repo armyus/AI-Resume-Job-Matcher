@@ -262,7 +262,12 @@ def _match_resume(resume, job_id):
         from src.matching_engine import calculate_match
 
         result = calculate_match(candidate, job["profile"])
-        MATCH_HISTORY.append({"score": result["overall_score"], "job_id": job_id})
+        MATCH_HISTORY.append({
+            "score": result["overall_score"],
+            "job_id": job_id,
+            "department": job.get("department", "Unknown"),
+            "missing_skills": result.get("skill_match", {}).get("missing_skills", []),
+        })
         return jsonify({
             "job_id": job_id,
             "candidate": candidate,
@@ -299,7 +304,12 @@ def match_all():
         results = []
         for job in _available_job_profiles():
             result = calculate_match(candidate, job["profile"])
-            MATCH_HISTORY.append({"score": result["overall_score"], "job_id": job["id"]})
+            MATCH_HISTORY.append({
+                "score": result["overall_score"],
+                "job_id": job["id"],
+                "department": job.get("department", "Unknown"),
+                "missing_skills": result.get("skill_match", {}).get("missing_skills", []),
+            })
             results.append({
                 "id": job["id"],
                 "title": job["title"],
@@ -384,6 +394,43 @@ def analytics():
         return auth_error
 
     total_matches = len(MATCH_HISTORY)
+    screened_matches = sum(item["score"] >= 60 for item in MATCH_HISTORY)
+    missing_skill_counts = {}
+    for item in MATCH_HISTORY:
+        for skill in item.get("missing_skills", []):
+            missing_skill_counts[skill] = missing_skill_counts.get(skill, 0) + 1
+    top_skill_gaps = [
+        {
+            "skill": skill,
+            "count": count,
+            "percentage": round(count / total_matches * 100, 1) if total_matches else 0,
+        }
+        for skill, count in sorted(
+            missing_skill_counts.items(), key=lambda entry: entry[1], reverse=True
+        )[:10]
+    ]
+    pipeline_conversion = [
+        {"stage": "Applications", "count": total_matches, "percentage": 100},
+        {"stage": "Screened", "count": screened_matches, "percentage": round(screened_matches / total_matches * 100, 1) if total_matches else 0},
+    ]
+    score_distribution = []
+    for lower, upper in ((0, 40), (41, 55), (56, 70), (71, 85), (86, 100)):
+        score_distribution.append({
+            "range": f"{lower}-{upper}",
+            "count": sum(lower <= item["score"] <= upper for item in MATCH_HISTORY),
+        })
+    department_totals = {}
+    for item in MATCH_HISTORY:
+        department = item.get("department", "Unknown")
+        department_totals.setdefault(department, []).append(item["score"])
+    department_breakdown = [
+        {
+            "department": department,
+            "matches": len(scores),
+            "average_score": round(sum(scores) / len(scores), 1),
+        }
+        for department, scores in department_totals.items()
+    ]
     average_score = round(
         sum(item["score"] for item in MATCH_HISTORY) / total_matches,
         1,
@@ -396,6 +443,10 @@ def analytics():
             1,
         ) if total_matches else 0,
         "roles": len(_available_job_profiles()),
+        "pipeline_conversion": pipeline_conversion,
+        "top_skill_gaps": top_skill_gaps,
+        "score_distribution": score_distribution,
+        "department_breakdown": department_breakdown,
         "status": "ready",
     })
 
