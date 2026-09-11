@@ -12,7 +12,7 @@ export default function DashboardView({ candidateData, onFileUpload }) {
     <div className="p-6 grid grid-cols-12 gap-5 max-w-[1700px] mx-auto">
       
       {/* ================= LEFT SIDEBAR (25% / 3 cols) ================= */}
-      <div className="col-span-12 lg:col-span-3 space-y-4">
+      <div className="col-span-12 lg:col-span-3 space-y-4 lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(100vh-32px)] lg:overflow-y-auto lg:pr-1">
         {/* Active Role Card */}
         <div className="bg-[var(--bg-card)] border border-[var(--border-card)] rounded-2xl p-4">
           <span className="text-[10px] font-bold tracking-wider uppercase text-indigo-500">Active Role</span>
@@ -44,7 +44,7 @@ export default function DashboardView({ candidateData, onFileUpload }) {
             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/10 text-indigo-500">4</span>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-2 max-h-[430px] overflow-y-auto pr-1">
             {candidateData ? [candidateData].map((c, i) => (
               <div
                 key={i}
@@ -105,32 +105,66 @@ export default function DashboardView({ candidateData, onFileUpload }) {
             <ScoreGauge score={candidateData?.baseScore || 0} />
           </div>
 
-          {/* Dynamic Weight Sliders */}
-          <div className="col-span-7 space-y-3 pl-2">
-            <div className="flex items-center justify-between text-[11px] font-bold text-[var(--text-muted)] uppercase tracking-wider">
-              <span>Match Weighting</span>
+          {/* Auto-Sliding Match Breakdown Meters */}
+          <div className="col-span-7 space-y-3 pl-1">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-extrabold text-slate-400 dark:text-gray-400 uppercase tracking-wider block">
+                MATCH WEIGHTING
+              </span>
+              <span className="text-[10px] font-bold text-indigo-500">
+                AI Evaluated
+              </span>
             </div>
 
-            {[
-              { key: 'skills', label: 'Skills', val: weights.skills },
-              { key: 'experience', label: 'Experience', val: weights.experience },
-              { key: 'education', label: 'Education', val: weights.education }
-            ].map((s) => (
-              <div key={s.key} className="space-y-1">
-                <div className="flex justify-between text-xs font-semibold">
-                  <span className="text-[var(--text-primary)]">{s.label}</span>
-                  <span className="text-indigo-500">{s.val}%</span>
+            {(() => {
+              // 1. Automatically calculate unique scores for each candidate:
+              
+              // Skills: Matched vs Missing ratio
+              const matchedCount = selectedCandidate?.matchedSkills?.length || 0;
+              const missingCount = selectedCandidate?.missingSkills?.length || 0;
+              const totalSkills = matchedCount + missingCount;
+              const autoSkills = totalSkills > 0 
+                ? Math.round((matchedCount / totalSkills) * 100) 
+                : (selectedCandidate?.scores?.tech || 50);
+
+              // Experience: Candidate years vs JD requirement (e.g. 1.0 yr / 5 yrs = 20%)
+              const candYrs = parseFloat(selectedCandidate?.expYrs) || 1.0;
+              const reqYrs = parseFloat(selectedCandidate?.reqExpYrs) || 5.0;
+              const autoExperience = Math.min(100, Math.max(10, Math.round((candYrs / reqYrs) * 100)));
+
+              // Education: degree verification score
+              const hasEdu = selectedCandidate?.education && selectedCandidate.education.length > 0;
+              const autoEducation = hasEdu ? (selectedCandidate?.scores?.edu || 85) : 40;
+
+              const metricItems = [
+                { label: 'Skills', val: autoSkills },
+                { label: 'Experience', val: autoExperience },
+                { label: 'Education', val: autoEducation }
+              ];
+
+              return metricItems.map((s) => (
+                <div key={s.label} className="space-y-1">
+                  <div className="flex justify-between text-xs font-semibold">
+                    <span>{s.label}</span>
+                    <span className="text-indigo-500 font-bold">{s.val}%</span>
+                  </div>
+
+                  {/* Self-Sliding Animated Track with Knob */}
+                  <div className="relative w-full h-1.5 bg-slate-200 dark:bg-gray-700 rounded-full overflow-visible">
+                    {/* Animated Filled Bar */}
+                    <div
+                      className="h-full bg-indigo-500 rounded-full transition-all duration-700 ease-out"
+                      style={{ width: `${s.val}%` }}
+                    />
+                    {/* Animated Knob that automatically slides itself to the value */}
+                    <div
+                      className="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-indigo-600 border-2 border-white dark:border-[#111622] rounded-full shadow-md transition-all duration-700 ease-out pointer-events-none"
+                      style={{ left: `calc(${s.val}% - 7px)` }}
+                    />
+                  </div>
                 </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={s.val}
-                  onChange={(e) => setWeights({ ...weights, [s.key]: parseInt(e.target.value) })}
-                  className="w-full h-1.5 bg-[var(--bg-input)] accent-indigo-500 rounded-lg cursor-pointer"
-                />
-              </div>
-            ))}
+              ));
+            })()}
 
             {/* Experience Match Bar */}
             <div className="pt-2 border-t border-[var(--border-card)] space-y-1">
@@ -138,9 +172,12 @@ export default function DashboardView({ candidateData, onFileUpload }) {
                 <span className="text-[var(--text-muted)]">Candidate Experience: {candidateData?.expYrs || 'Not available'}</span>
                 <span className="text-emerald-500 font-bold">JD Req: {candidateData?.reqExpYrs || 'Not specified'}</span>
               </div>
-              <div className="w-full h-2 rounded-full bg-[var(--bg-input)] overflow-hidden">
-                <div className="h-full bg-emerald-500 rounded-full" style={{ width: '85%' }}></div>
-              </div>
+              <div 
+  className="h-full bg-[#10B981] rounded-full transition-all duration-500" 
+  style={{ 
+    width: `${Math.min(100, Math.max(15, (parseFloat(selectedCandidate?.expYrs || 1) / 5) * 100))}%` 
+  }}
+></div>
             </div>
           </div>
         </div>

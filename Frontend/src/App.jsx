@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect,  useRef } from 'react';
 import { 
   Zap, Search, Sun, Moon, Bell, ChevronDown, Upload, Download, LogOut, 
   CheckCircle2, AlertTriangle, MapPin, Mail, Filter, Plus, Star, ChevronRight, FileText,
@@ -345,6 +345,7 @@ export default function App() {
   const [selectedJobId, setSelectedJobId] = useState('');
   const [availableJobs, setAvailableJobs] = useState([]);
   const [selectedJob, setSelectedJob] = useState(null);
+  const [selectedRoleDetails, setSelectedRoleDetails] = useState(null);
 
   const [authScreen, setAuthScreen] = useState('login');
   const [checkingAuth, setCheckingAuth] = useState(true);
@@ -377,8 +378,14 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState('');
   const [analyticsData, setAnalyticsData] = useState(null);
   const [newRoleTitle, setNewRoleTitle] = useState('');
+  const [newRoleExperience, setNewRoleExperience] = useState('');
+  const [newRoleSkills, setNewRoleSkills] = useState('');
+  const [newRoleAdditionalInfo, setNewRoleAdditionalInfo] = useState('');
+  const [newRoleDescription, setNewRoleDescription] = useState('');
   const [newRoleDepartment, setNewRoleDepartment] = useState('Engineering');
   const [newRoleLocation, setNewRoleLocation] = useState('Remote');
+  const [isGeneratingJD, setIsGeneratingJD] = useState(false);
+  const [isCreatingRole, setIsCreatingRole] = useState(false);
 
   // Dynamic Score Recalculation
 useEffect(() => {
@@ -396,41 +403,78 @@ useEffect(() => {
     });
 }, []);
 
-useEffect(() => {
-  if (!currentUser || currentUser.role !== 'Recruiter') return;
-
-  fetch('/api/jobs', {
-    credentials: 'include',
-  })
-    .then((res) => res.json())
-    .then((data) => {
-      const jobs = data.jobs || [];
-
-      setAvailableJobs(jobs);
-
-      const activeJob =
-        jobs.find((job) => job.id === selectedJobId) || jobs[0];
-
-      if (activeJob) {
-        setSelectedJobId(activeJob.id);
-        setSelectedJob(activeJob);
-      }
-    })
-    .catch((error) => {
-      console.error('Failed to load jobs:', error);
-    });
-}, [currentUser]);
+const hasLoadedAppsRef = useRef(false);
 
   useEffect(() => {
-    if (selectedCandidate.id === 'empty') {
+    if (!currentUser || currentUser.role !== 'Recruiter') return;
+
+    // 1. Fetch Open Roles Once
+    fetch('/api/jobs', { credentials: 'include' })
+      .then((res) => res.json())
+      .then((data) => {
+        const jobs = data.jobs || [];
+        setAvailableJobs(jobs);
+        const activeJob = jobs.find((job) => job.id === selectedJobId) || jobs[0];
+        if (activeJob) {
+          setSelectedJobId(activeJob.id);
+          setSelectedJob(activeJob);
+        }
+      })
+      .catch((err) => console.error('Failed to load jobs:', err));
+
+    // 2. Fetch Applications ONCE (guards against infinite loops!)
+    if (!hasLoadedAppsRef.current) {
+      hasLoadedAppsRef.current = true;
+      fetch('/api/applications', { credentials: 'include' })
+        .then((res) => res.json())
+        .then((data) => {
+          const dbCandidates = data.candidates || [];
+          if (dbCandidates.length > 0) {
+            setCandidatesPipelineList(dbCandidates);
+            setSelectedCandidate((prev) => (!prev || prev.id === 'empty' ? dbCandidates[0] : prev));
+          }
+        })
+        .catch((err) => console.error('Failed to load candidates:', err));
+    }
+  }, [currentUser]);
+
+  // NEW WORKING CODE:
+  // Real ATS Weighted Match Calculation
+  // 1. Live Gauge Score Calculation
+  useEffect(() => {
+    if (!selectedCandidate || selectedCandidate.id === 'empty') {
       setComputedScore(0);
       return;
     }
-    const base = selectedCandidate.baseScore;
-    const factor = (weights.skills * 0.50 + weights.experience * 0.35 + weights.education * 0.15) / 50;
-    const recalculated = Math.min(99, Math.max(40, Math.round(base * factor)));
-    setComputedScore(recalculated);
+
+    const techScore = Number(selectedCandidate.scores?.tech ?? selectedCandidate.baseScore ?? 50);
+    const expScore = Number(selectedCandidate.scores?.exp ?? (parseFloat(selectedCandidate.expYrs) >= 5 ? 90 : 40));
+    const eduScore = Number(selectedCandidate.scores?.edu ?? 80);
+
+    const totalWeight = (weights.skills + weights.experience + weights.education) || 100;
+    const weightedScore = Math.round(
+      (techScore * weights.skills + expScore * weights.experience + eduScore * weights.education) / totalWeight
+    );
+
+    setComputedScore(Math.min(99, Math.max(10, weightedScore)));
   }, [weights, selectedCandidate]);
+
+  // 2. Fetch Candidates ONCE on Login (Protected by a ref so it NEVER loops!)
+  useEffect(() => {
+    if (!currentUser || currentUser.role !== 'Recruiter' || hasLoadedAppsRef.current) return;
+    hasLoadedAppsRef.current = true;
+
+    fetch('/api/applications', { credentials: 'include' })
+      .then((res) => res.json())
+      .then((data) => {
+        const dbCandidates = data.candidates || [];
+        if (dbCandidates.length > 0) {
+          setCandidatesPipelineList(dbCandidates);
+          setSelectedCandidate((prev) => (!prev || prev.id === 'empty' ? dbCandidates[0] : prev));
+        }
+      })
+      .catch((err) => console.error('Failed to load candidates from DB:', err));
+  }, [currentUser]);
 
   // Sync Theme Class
   useEffect(() => {
@@ -467,20 +511,110 @@ useEffect(() => {
       triggerToast('Enter a job title first.');
       return;
     }
+    if (!newRoleDescription.trim()) {
+      triggerToast('Generate or enter a job description first.');
+      return;
+    }
+    setIsCreatingRole(true);
     try {
       await createRole({
         title: newRoleTitle,
         department: newRoleDepartment,
         location: newRoleLocation,
+        experience: newRoleExperience,
+        required_skills: newRoleSkills,
+        additional_information: newRoleAdditionalInfo,
+        description: newRoleDescription,
       });
       const response = await fetch('/api/jobs', { credentials: 'include' });
       const data = await response.json();
       setAvailableJobs(data.jobs || []);
       setNewRoleTitle('');
+      setNewRoleExperience('');
+      setNewRoleSkills('');
+      setNewRoleAdditionalInfo('');
+      setNewRoleDescription('');
       setActiveModal(null);
       triggerToast('New role posted to the active pipeline.');
     } catch (error) {
       triggerToast(error.response?.data?.error || 'Unable to post the role.');
+    } finally {
+      setIsCreatingRole(false);
+    }
+  };
+
+  const handleGenerateJobDescription = async () => {
+    if (!newRoleTitle.trim()) {
+      triggerToast('Enter a job title first.');
+      return;
+    }
+
+    setIsGeneratingJD(true);
+    try {
+      const response = await fetch('/api/roles/generate-description', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          title: newRoleTitle,
+          experience: newRoleExperience,
+          key_skills: newRoleSkills,
+          additional_information: newRoleAdditionalInfo,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Unable to generate job description.');
+      }
+      setNewRoleDescription(data.description || '');
+    } catch (error) {
+      triggerToast(error.message || 'Unable to generate job description.');
+    } finally {
+      setIsGeneratingJD(false);
+    }
+  };
+
+  const handleAnalyticsExport = async () => {
+    try {
+      const response = await fetch('/api/analytics/export', { credentials: 'include' });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'Unable to export analytics report.');
+      }
+      const blob = await response.blob();
+      const downloadUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = 'RMI_AI_Analytics_Report.pdf';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      triggerToast(error.message || 'Unable to export analytics report.');
+    }
+  };
+
+  const handleResumeDownload = async () => {
+    try {
+      const response = await fetch(`/api/applications/${encodeURIComponent(selectedCandidate.id)}/resume`, {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'Unable to download this resume.');
+      }
+      const blob = await response.blob();
+      const downloadUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = `${selectedCandidate.name || 'candidate'}_resume`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      triggerToast(error.message || 'Unable to download this resume.');
     }
   };
 
@@ -499,6 +633,11 @@ useEffect(() => {
     triggerToast(`Active role changed to ${job.title}`);
   }
 };
+
+const handleViewRole = (role) => {
+  setSelectedRoleDetails(role);
+  setActiveModal('roleDetails');
+};
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
 if (!file) return;
@@ -516,16 +655,42 @@ try {
     triggerToast('Analyzing resume against selected role...');
 
     const response = await analyzeResumeAndJD(file, selectedJobId);
-      const candidate = response.candidate || {};
-      const match = response.match || {};
-      const recommendation = match.recommendation || {};
-      const score = Math.round(match.overall_score || 0);
-      const matchedSkills = match.skill_match?.matched_skills || [];
-      const missingSkills = match.skill_match?.missing_skills || [];
-      const realCandidate = {
+    const candidate = response.candidate || {};
+    const match = response.match || {};
+    const recommendation = match.recommendation || {};
+    const score = Math.round(match.overall_score || 0);
+    const matchedSkills = match.skill_match?.matched_skills || [];
+    const missingSkills = match.skill_match?.missing_skills || [];
+
+    // Normalize AI Questions so they ALWAYS have topic and text
+    let rawQuestions = recommendation.questions || [];
+    let formattedQuestions = [];
+
+    if (Array.isArray(rawQuestions) && rawQuestions.length > 0) {
+      formattedQuestions = rawQuestions.map((q, idx) => {
+        if (typeof q === 'string') {
+          return { topic: `Skill Assessment ${idx + 1}`, text: q };
+        }
+        return { topic: q.topic || `Question ${idx + 1}`, text: q.text || q.question || '' };
+      });
+    } else if (missingSkills.length > 0) {
+      // Auto-generate from missing skills if backend didn't provide any
+      formattedQuestions = missingSkills.slice(0, 2).map((skill) => ({
+        topic: `${skill} Experience Gap`,
+        text: `We noticed ${skill} is not listed on your resume. How would you ramp up on ${skill} if required for this role?`
+      }));
+    } else {
+      formattedQuestions = [{
+        topic: "Architecture & Scale",
+        text: "Walk us through the most complex project you have engineered and how you made scaling decisions."
+      }];
+    }
+
+    const realCandidate = {
         id: `api-${Date.now()}`,
         name: candidate.name || file.name.replace(/\.[^.]+$/, ''),
         role: selectedJob?.title || selectedJobId,
+        job_id: selectedJobId,
         reqId: selectedJobId,
         score: `${score}%`,
         stage: 'Analyzed',
@@ -540,7 +705,11 @@ try {
         matchedSkills,
         missingSkills,
         adjacentSkills: [],
-        expYrs: Array.isArray(candidate.experience) && candidate.experience.length ? candidate.experience.join(', ') : 'Not available',
+        // Attach extracted data:
+        experience: Array.isArray(candidate.experience) ? candidate.experience : [candidate.experience].filter(Boolean),
+        education: Array.isArray(candidate.education) ? candidate.education : [candidate.education].filter(Boolean),
+        projects: Array.isArray(candidate.projects) ? candidate.projects : [candidate.projects].filter(Boolean),
+        expYrs: Array.isArray(candidate.experience) && candidate.experience.length ? `${candidate.experience.length * 1.5} yrs` : '1+ yrs',
         reqExpYrs: response.job?.minimum_experience_years ? `${response.job.minimum_experience_years}+ yrs` : 'Not specified',
         location: candidate.location || 'Location unavailable',
         email: candidate.email || 'Email unavailable',
@@ -555,7 +724,12 @@ try {
         verdictTitle: recommendation.recommendation || 'Review Match',
         strengths: recommendation.strengths || [],
         risks: recommendation.gaps || [],
-        questions: Array.isArray(recommendation.questions) ? recommendation.questions : [],
+        questions: Array.isArray(recommendation.questions) && recommendation.questions.length ? recommendation.questions : (
+          missingSkills.slice(0, 2).map(skill => ({
+            topic: `${skill} Experience Gap`,
+            text: `We noticed ${skill} was not listed on your resume. Could you describe your experience or how quickly you could ramp up on ${skill}?`
+          }))
+        ),
       };
       setSelectedCandidate(realCandidate);
       setCandidateAnalysesByJob((previous) => ({ ...previous, [selectedJobId]: realCandidate }));
@@ -732,7 +906,7 @@ if (currentUser.role === 'Candidate') {
       {activeTab === 'Dashboard' && (
         <main className="dashboard-workbench grid min-h-0 min-w-0 flex-1 overflow-y-auto p-3 grid-cols-1 gap-4 max-w-[1700px] w-full mx-auto sm:p-4 xl:grid-cols-12 xl:grid-rows-1 xl:overflow-hidden">
           {/* Left Sidebar */}
-          <div className="dashboard-sidebar col-span-12 min-w-0 space-y-3 pr-1 xl:col-span-3 xl:h-full xl:overflow-hidden">
+          <div className="dashboard-sidebar col-span-12 min-w-0 space-y-3 pr-1 xl:col-span-3 xl:h-full xl:overflow-y-auto">
             <div className={`border rounded-2xl p-3.5 ${darkMode ? 'bg-[#111622] border-[#1D2636]' : 'bg-white border-[#E2E8F0]'}`}>
               <span className="text-[10px] font-bold tracking-wider uppercase text-indigo-500">ACTIVE ROLE</span>
               <select
@@ -778,38 +952,44 @@ if (currentUser.role === 'Candidate') {
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/10 text-indigo-500">{candidatesPipelineList.length}</span>
               </div>
               <div className="space-y-1.5">
-                {candidatesPipelineList.length === 0 ? (
-                  <p className="py-3 text-xs text-slate-500 dark:text-gray-400">No candidates analyzed yet.</p>
-                ) : candidatesPipelineList.map((c) => {
-                  const isSelected = selectedCandidate.id === c.id;
-                  return (
-                    <button
-                      key={c.id}
-                      onClick={() => setSelectedCandidate(c)}
-                      className={`w-full text-left flex items-center justify-between p-2 rounded-xl border transition ${
-                        isSelected 
-                          ? 'bg-indigo-600/10 border-indigo-500/50 shadow-sm' 
-                          : darkMode ? 'bg-[#131B2A] border-transparent hover:border-gray-700' : 'bg-slate-50 border-slate-200 hover:border-slate-300'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className={`w-7 h-7 rounded-xl font-bold text-xs flex items-center justify-center ${isSelected ? 'bg-indigo-600 text-white' : 'bg-indigo-600/80 text-white'}`}>
-                          {c.initials}
-                        </div>
-                        <div>
-                          <p className="text-xs font-bold leading-none">{c.name}</p>
-                          <p className="text-[10px] text-slate-400 dark:text-gray-400 mt-0.5">{c.date}</p>
-                        </div>
+              {candidatesPipelineList.length === 0 ? (
+                <p className="py-3 text-xs text-slate-500 dark:text-gray-400">No candidates analyzed yet.</p>
+              ) : candidatesPipelineList.map((c) => {
+                const isSelected = selectedCandidate?.id === c.id || selectedCandidate?.name === c.name;
+                return (
+                  <button
+                    key={c.id || c.name}
+                    type="button"
+                    onClick={() => {
+  setSelectedCandidate(c);
+  // Guarantee values are populated
+  setComputedScore(Number(c.baseScore || parseInt(c.score) || 50));
+  triggerToast(`Viewing candidate: ${c.name}`);
+}}
+                    className={`w-full text-left flex items-center justify-between p-2 rounded-xl border transition cursor-pointer ${
+                      isSelected 
+                        ? 'bg-indigo-600/10 border-indigo-500/50 shadow-sm' 
+                        : darkMode ? 'bg-[#131B2A] border-transparent hover:border-gray-700' : 'bg-slate-50 border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className={`w-7 h-7 rounded-xl font-bold text-xs flex items-center justify-center ${isSelected ? 'bg-indigo-600 text-white' : 'bg-indigo-600/80 text-white'}`}>
+                        {c.initials}
                       </div>
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                        c.baseScore >= 85 ? 'bg-emerald-500/10 text-emerald-500' : c.baseScore >= 70 ? 'bg-amber-500/10 text-amber-500' : 'bg-rose-500/10 text-rose-500'
-                      }`}>
-                        {c.baseScore}%
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+                      <div>
+                        <p className="text-xs font-bold leading-none">{c.name}</p>
+                        <p className="text-[10px] text-slate-400 dark:text-gray-400 mt-0.5">{c.date}</p>
+                      </div>
+                    </div>
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                      (c.baseScore || parseInt(c.score)) >= 85 ? 'bg-emerald-500/10 text-emerald-500' : (c.baseScore || parseInt(c.score)) >= 70 ? 'bg-amber-500/10 text-amber-500' : 'bg-rose-500/10 text-rose-500'
+                    }`}>
+                      {c.score || `${c.baseScore}%`}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
             </div>
           </div>
 
@@ -832,7 +1012,7 @@ if (currentUser.role === 'Candidate') {
                   </div>
                 </div>
               </div>
-              <button onClick={() => triggerToast(`Downloading PDF Resume for ${selectedCandidate.name}...`)} className="px-3 py-1.5 rounded-xl border border-indigo-500/30 text-indigo-500 font-bold text-xs hover:bg-indigo-500/10 flex items-center gap-1.5 transition">
+              <button onClick={handleResumeDownload} className="px-3 py-1.5 rounded-xl border border-indigo-500/30 text-indigo-500 font-bold text-xs hover:bg-indigo-500/10 flex items-center gap-1.5 transition">
                 <Download className="w-3.5 h-3.5" /> Download Resume
               </button>
             </div>
@@ -854,42 +1034,82 @@ if (currentUser.role === 'Candidate') {
                 </span>
               </div>
 
+              {/* Auto-Sliding Match Breakdown Meters & Experience Match */}
               <div className="col-span-1 min-w-0 space-y-2.5 pl-1 xl:col-span-7">
-                <span className="text-[10px] font-extrabold text-slate-400 dark:text-gray-400 uppercase tracking-wider block">MATCH WEIGHTING</span>
-                {[
-                  { key: 'skills', label: 'Skills', val: weights.skills },
-                  { key: 'experience', label: 'Experience', val: weights.experience },
-                  { key: 'education', label: 'Education', val: weights.education }
-                ].map((s) => (
-                  <div key={s.key} className="space-y-0.5">
-                    <div className="flex justify-between text-xs font-semibold">
-                      <span>{s.label}</span>
-                      <span className="text-indigo-500 font-bold">{s.val}%</span>
-                    </div>
-                    <input type="range" min="10" max="80" value={s.val} onChange={(e) => setWeights({ ...weights, [s.key]: parseInt(e.target.value) })} className="w-full h-1 bg-slate-200 dark:bg-gray-700 accent-indigo-500 rounded-lg cursor-pointer" />
-                  </div>
-                ))}
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-extrabold text-slate-400 dark:text-gray-400 uppercase tracking-wider block">
+                    MATCH WEIGHTING
+                  </span>
+                  <span className="text-[10px] font-bold text-indigo-500">
+                    AI Evaluated
+                  </span>
+                </div>
 
+                {(() => {
+                  // Calculate dynamic scores unique to this candidate
+                  const matchedCount = selectedCandidate?.matchedSkills?.length || 0;
+                  const missingCount = selectedCandidate?.missingSkills?.length || 0;
+                  const totalSkills = matchedCount + missingCount;
+                  const autoSkills = totalSkills > 0 
+                    ? Math.round((matchedCount / totalSkills) * 100) 
+                    : Number(selectedCandidate?.scores?.tech || selectedCandidate?.baseScore || 50);
+
+                  const candYrs = parseFloat(selectedCandidate?.expYrs) || 1.0;
+                  const reqYrs = parseFloat(selectedCandidate?.reqExpYrs) || 5.0;
+                  const autoExperience = Math.min(100, Math.max(10, Math.round((candYrs / reqYrs) * 100)));
+
+                  const hasEdu = selectedCandidate?.education && selectedCandidate.education.length > 0;
+                  const autoEducation = hasEdu ? Number(selectedCandidate?.scores?.edu || 85) : 40;
+
+                  const metricItems = [
+                    { label: 'Skills', val: autoSkills },
+                    { label: 'Experience', val: autoExperience },
+                    { label: 'Education', val: autoEducation }
+                  ];
+
+                  return metricItems.map((s) => (
+                    <div key={s.label} className="space-y-0.5">
+                      <div className="flex justify-between text-xs font-semibold">
+                        <span>{s.label}</span>
+                        <span className="text-indigo-500 font-bold">{s.val}%</span>
+                      </div>
+
+                      {/* Animated self-sliding track and knob */}
+                      <div className="relative w-full h-1 bg-slate-200 dark:bg-gray-700 rounded-full overflow-visible my-1.5">
+                        <div
+                          className="h-full bg-indigo-500 rounded-full transition-all duration-700 ease-out"
+                          style={{ width: `${s.val}%` }}
+                        />
+                        <div
+                          className="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-indigo-600 border-2 border-white dark:border-[#111622] rounded-full shadow-md transition-all duration-700 ease-out pointer-events-none"
+                          style={{ left: `calc(${s.val}% - 7px)` }}
+                        />
+                      </div>
+                    </div>
+                  ));
+                })()}
+
+               
+                {/* Experience Match Box */}
                 <div className={`p-2.5 rounded-xl border space-y-2 ${darkMode ? 'bg-[#131B2A] border-[#1D2636]' : 'bg-slate-50 border-slate-200'}`}>
                   <span className="text-[10px] font-bold text-slate-400 dark:text-gray-400 uppercase tracking-wider block">Experience Match</span>
+                  
+                  {/* Candidate Row */}
                   <div className="flex items-center gap-2 text-xs">
                     <span className="w-24 text-slate-500 dark:text-gray-400 font-medium text-[11px]">Candidate</span>
                     <div className="flex-1 h-2 rounded-full bg-slate-200 dark:bg-gray-800 overflow-hidden">
-                      <div className="h-full bg-[#10B981] rounded-full" style={{ width: '85%' }}></div>
+                      <div 
+                        className="h-full bg-[#10B981] rounded-full transition-all duration-700 ease-out" 
+                        style={{ 
+                          width: `${Math.min(100, Math.max(15, (parseFloat(selectedCandidate?.expYrs || 1) / 5) * 100))}%` 
+                        }}
+                      ></div>
                     </div>
-                    <span className="font-bold text-[#10B981] text-[11px]">{selectedCandidate.expYrs}</span>
+                    <span className="font-bold text-[#10B981] text-[11px]">{selectedCandidate?.expYrs || '1+ yrs'}</span>
                   </div>
-                  <div className="flex items-center gap-2 text-xs">
-                    <span className="w-24 text-slate-500 dark:text-gray-400 font-medium text-[11px]">JD Requirement</span>
-                    <div className="flex-1 h-2 rounded-full bg-slate-200 dark:bg-gray-800 overflow-hidden">
-                      <div className="h-full bg-slate-400 dark:bg-[#2A3447] rounded-full" style={{ width: '65%' }}></div>
-                    </div>
-                    <span className="font-semibold text-slate-500 dark:text-gray-400 text-[11px]">{selectedCandidate.reqExpYrs}</span>
-                  </div>
-                </div>
               </div>
             </div>
-
+          </div>
             <div className={`border rounded-2xl p-4 ${darkMode ? 'bg-[#111622] border-[#1D2636]' : 'bg-white border-[#E2E8F0]'}`}>
               <div className="flex flex-wrap gap-x-6 gap-y-2 border-b border-slate-200 pb-2.5 dark:border-gray-700/30 mb-3.5 xl:flex-nowrap">
                 {['Skills Gap', 'Experience Timeline', 'Projects & Education'].map((tab) => (
@@ -900,16 +1120,17 @@ if (currentUser.role === 'Candidate') {
                 ))}
               </div>
 
+              {/* TAB 1: Skills Gap */}
               {activeSubTab === 'Skills Gap' && (
                 <div className="space-y-3.5">
                   <div>
                     <div className="flex items-center gap-2 mb-2">
                       <span className="w-2 h-2 rounded-full bg-[#10B981]"></span>
                       <h4 className="text-xs font-bold">Matched Required Skills</h4>
-                      <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-[#10B981]/15 text-[#10B981]">{selectedCandidate.matchedSkills.length}</span>
+                      <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-[#10B981]/15 text-[#10B981]">{selectedCandidate.matchedSkills?.length || 0}</span>
                     </div>
                     <div className="flex flex-wrap gap-1.5">
-                      {selectedCandidate.matchedSkills.map((s) => (
+                      {selectedCandidate.matchedSkills?.map((s) => (
                         <span key={s} className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#10B981]/10 text-[#10B981] border border-[#10B981]/20">{s}</span>
                       ))}
                     </div>
@@ -920,28 +1141,72 @@ if (currentUser.role === 'Candidate') {
                       <div className="flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-[#EF4444]"></span>
                         <h4 className="text-xs font-bold">Missing Required Skills</h4>
-                        <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-[#EF4444]/15 text-[#EF4444]">{selectedCandidate.missingSkills.length}</span>
+                        <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-[#EF4444]/15 text-[#EF4444]">{selectedCandidate.missingSkills?.length || 0}</span>
                       </div>
                       <span className="text-[11px] font-bold text-[#F59E0B] flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> {selectedCandidate.riskTitle}</span>
                     </div>
                     <div className="flex flex-wrap gap-1.5">
-                      {selectedCandidate.missingSkills.map((s) => (
+                      {selectedCandidate.missingSkills?.map((s) => (
                         <span key={s} className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#EF4444]/10 text-[#EF4444] border border-[#EF4444]/20">{s}</span>
                       ))}
                     </div>
                   </div>
+                </div>
+              )}
+
+              {/* TAB 2: Experience Timeline */}
+              {activeSubTab === 'Experience Timeline' && (
+                <div className="space-y-3">
+                  {!selectedCandidate.experience || selectedCandidate.experience.length === 0 ? (
+                    <p className="text-xs text-slate-400 italic py-2">No work history extracted from resume.</p>
+                  ) : (
+                    selectedCandidate.experience.map((exp, idx) => (
+                      <div key={idx} className="flex items-start gap-3 border-l-2 border-indigo-500 pl-3 py-1">
+                        <div>
+                          <p className="text-xs font-bold text-slate-800 dark:text-gray-200">
+                            {typeof exp === 'object' ? exp.role || exp.title || 'Role' : exp}
+                          </p>
+                          {typeof exp === 'object' && exp.company && (
+                            <p className="text-[11px] text-slate-500">{exp.company} • {exp.duration || ''}</p>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+
+              {/* TAB 3: Projects & Education */}
+              {activeSubTab === 'Projects & Education' && (
+                <div className="space-y-4 text-xs">
+                  <div>
+                    <h5 className="font-bold text-indigo-500 mb-2 flex items-center gap-1.5">
+                      <Briefcase className="w-3.5 h-3.5"/> Education
+                    </h5>
+                    {!selectedCandidate.education || selectedCandidate.education.length === 0 ? (
+                      <p className="text-slate-400 italic">No education extracted.</p>
+                    ) : (
+                      selectedCandidate.education.map((edu, idx) => (
+                        <div key={idx} className="p-2.5 rounded-xl border border-slate-200 dark:border-gray-800 mb-1">
+                          <p className="font-bold text-slate-800 dark:text-gray-200">{typeof edu === 'object' ? edu.degree || edu.institution : edu}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
 
                   <div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="w-2 h-2 rounded-full bg-[#8B5CF6]"></span>
-                      <h4 className="text-xs font-bold">Adjacent / Transferable Skills</h4>
-                      <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-[#8B5CF6]/15 text-[#8B5CF6]">{selectedCandidate.adjacentSkills.length}</span>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {selectedCandidate.adjacentSkills.map((s) => (
-                        <span key={s} className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#8B5CF6]/10 text-[#8B5CF6] border border-[#8B5CF6]/20">{s}</span>
-                      ))}
-                    </div>
+                    <h5 className="font-bold text-indigo-500 mb-2 flex items-center gap-1.5">
+                      <Zap className="w-3.5 h-3.5"/> Projects
+                    </h5>
+                    {!selectedCandidate.projects || selectedCandidate.projects.length === 0 ? (
+                      <p className="text-slate-400 italic">No projects listed.</p>
+                    ) : (
+                      selectedCandidate.projects.map((proj, idx) => (
+                        <div key={idx} className="p-2.5 rounded-xl border border-slate-200 dark:border-gray-800 mb-1">
+                          <p className="font-bold text-slate-800 dark:text-gray-200">{typeof proj === 'object' ? proj.name || proj.title : proj}</p>
+                        </div>
+                      ))
+                    )}
                   </div>
                 </div>
               )}
@@ -984,21 +1249,65 @@ if (currentUser.role === 'Candidate') {
               </div>
             </div>
 
+            {/* AI Interview Questions Card */}
             <div className={`border rounded-2xl p-4 space-y-2.5 ${darkMode ? 'bg-[#111622] border-[#1D2636]' : 'bg-white border-[#E2E8F0]'}`}>
               <div className="flex items-center gap-2 text-indigo-500">
                 <Brain className="w-4 h-4" />
-                <span className="text-[10px] font-extrabold tracking-wider uppercase text-slate-400 dark:text-gray-400">AI INTERVIEW QUESTIONS</span>
+                <span className="text-[10px] font-extrabold tracking-wider uppercase text-slate-400 dark:text-gray-400">
+                  AI INTERVIEW QUESTIONS
+                </span>
               </div>
 
-              {selectedCandidate.questions.map((q, i) => (
-                <div key={i} className={`p-3 rounded-xl border text-xs space-y-1 ${darkMode ? 'bg-[#131B2A] border-[#1D2636]' : 'bg-slate-50 border-slate-200'}`}>
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#F59E0B]"></span>
-                    <p className="font-bold text-[#F59E0B] text-[11px]">{q.topic}</p>
+              {(() => {
+                // 1. Get questions or dynamically construct them from missing skills
+                let questionsList = selectedCandidate?.questions || [];
+
+                if (!Array.isArray(questionsList) || questionsList.length === 0) {
+                  const gaps = selectedCandidate?.missingSkills || [];
+                  const matched = selectedCandidate?.matchedSkills || [];
+
+                  if (gaps.length > 0) {
+                    questionsList = gaps.slice(0, 2).map((skill) => ({
+                      topic: `${skill.toUpperCase()} Experience Gap`,
+                      text: `We noticed ${skill} is required for this role. Given your experience in ${matched.slice(0, 2).join(', ') || 'your stack'}, how quickly could you ramp up on ${skill}?`
+                    }));
+                  } else if (selectedCandidate?.name && selectedCandidate?.id !== 'empty') {
+                    questionsList = [
+                      {
+                        topic: "Architecture & Scale",
+                        text: "Can you describe a complex system you engineered and how you made scaling decisions?"
+                      }
+                    ];
+                  }
+                }
+
+                // 2. If no candidate selected yet
+                if (questionsList.length === 0) {
+                  return (
+                    <p className="text-xs text-slate-400 italic py-2">
+                      Upload a resume to auto-generate questions.
+                    </p>
+                  );
+                }
+
+                // 3. Render questions cleanly
+                return questionsList.map((q, i) => (
+                  <div 
+                    key={i} 
+                    className={`p-3 rounded-xl border text-xs space-y-1 ${darkMode ? 'bg-[#131B2A] border-[#1D2636]' : 'bg-slate-50 border-slate-200'}`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#F59E0B]"></span>
+                      <p className="font-bold text-[#F59E0B] text-[11px]">
+                        {typeof q === 'string' ? `Question ${i + 1}` : q.topic || `Skill Gap ${i + 1}`}
+                      </p>
+                    </div>
+                    <p className="text-slate-700 dark:text-gray-300 leading-relaxed text-[11px] pl-3 font-medium">
+                      "{typeof q === 'string' ? q : q.text || q.question || ''}"
+                    </p>
                   </div>
-                  <p className="text-slate-700 dark:text-gray-300 leading-relaxed text-[11px] pl-3 font-medium">"{q.text}"</p>
-                </div>
-              ))}
+                ));
+              })()}
             </div>
 
             <div className={`border rounded-2xl p-4 space-y-2 ${darkMode ? 'bg-[#111622] border-[#1D2636]' : 'bg-white border-[#E2E8F0]'}`}>
@@ -1022,11 +1331,35 @@ if (currentUser.role === 'Candidate') {
             </div>
 
             <div className="space-y-2 pt-1 pb-4">
-              <button onClick={() => setActiveModal('schedule')} className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs transition shadow-lg shadow-indigo-600/20 active:scale-95">Schedule Interview</button>
-              <div className="grid grid-cols-2 gap-2">
-                <button onClick={() => setActiveModal('reject')} className="py-2 rounded-xl border border-slate-300 dark:border-gray-700/50 hover:bg-rose-500/10 hover:text-rose-500 text-xs font-bold transition active:scale-95">Reject</button>
-                <button onClick={() => triggerToast(`Exporting ${selectedCandidate.name}'s Summary PDF...`)} className="py-2 rounded-xl border border-slate-300 dark:border-gray-700/50 text-xs font-bold transition active:scale-95">Export PDF</button>
-              </div>
+              <button
+  onClick={() => setActiveModal('schedule')}
+  className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs transition shadow-lg shadow-indigo-600/20 active:scale-95"
+>
+  Schedule Interview
+</button>
+
+<div className="grid grid-cols-3 gap-2">
+  <button
+    onClick={() => setActiveModal('reject')}
+    className="py-2 rounded-xl border border-slate-300 dark:border-gray-700/50 hover:bg-rose-500/10 hover:text-rose-500 text-xs font-bold transition active:scale-95"
+  >
+    Reject
+  </button>
+
+  <button
+    onClick={() => setActiveModal('select')}
+    className="py-2 rounded-xl border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 text-xs font-bold transition active:scale-95"
+  >
+    Select
+  </button>
+
+  <button
+    onClick={() => triggerToast(`Exporting ${selectedCandidate.name}'s Summary PDF...`)}
+    className="py-2 rounded-xl border border-slate-300 dark:border-gray-700/50 text-xs font-bold transition active:scale-95"
+  >
+    Export PDF
+  </button>
+</div>
             </div>
           </div>
         </main>
@@ -1123,7 +1456,7 @@ if (currentUser.role === 'Candidate') {
             {filteredRoles.map((role, idx) => (
               <div 
                 key={idx} 
-                onClick={() => { handleJobChange(role.id); setActiveTab('Dashboard'); }}
+                onClick={() => handleViewRole(role)}
                 className={`p-4 rounded-2xl border flex flex-col items-stretch justify-between gap-4 cursor-pointer transition sm:flex-row sm:items-center hover:border-indigo-500/50 ${darkMode ? 'bg-[#111622] border-[#1D2636] hover:bg-[#161D2D]' : 'bg-white border-[#E2E8F0] hover:bg-slate-50'}`}
               >
                 <div className="space-y-1.5">
@@ -1448,49 +1781,617 @@ if (currentUser.role === 'Candidate') {
 
       {/* ================= VIEW 4: ANALYTICS ================= */}
       {activeTab === 'Analytics' && (
-        <AnalyticsView analyticsData={analyticsData} onExport={() => triggerToast('Exporting analytics report...')} />
+        <AnalyticsView analyticsData={analyticsData} onExport={handleAnalyticsExport} />
       )}
 
       {/* ================= MODALS ================= */}
       {activeModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className={`w-full max-w-md p-6 rounded-2xl border shadow-2xl space-y-4 ${darkMode ? 'bg-[#111622] border-[#1D2636] text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
-            <div className="flex justify-between items-center border-b border-slate-200 dark:border-gray-700/30 pb-3">
-              <h3 className="font-extrabold text-sm">
-                {activeModal === 'schedule' && `Schedule Interview: ${selectedCandidate.name}`}
-                {activeModal === 'reject' && `Confirm Rejection: ${selectedCandidate.name}`}
-                {activeModal === 'newRole' && 'Post New Job Requisition'}
-              </h3>
-              <button onClick={() => setActiveModal(null)}><X className="w-4 h-4 text-slate-400 dark:text-gray-400"/></button>
+  <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div
+      className={`w-full max-w-md p-6 rounded-2xl border shadow-2xl space-y-4 ${
+        darkMode
+          ? 'bg-[#111622] border-[#1D2636] text-white'
+          : 'bg-white border-slate-200 text-slate-900'
+      }`}
+    >
+
+      {/* MODAL HEADER */}
+      <div className="flex justify-between items-center border-b border-slate-200 dark:border-gray-700/30 pb-3">
+        <h3 className="font-extrabold text-sm">
+          {activeModal === 'schedule' &&
+            `Schedule Interview: ${selectedCandidate.name}`}
+
+          {activeModal === 'reject' &&
+            `Confirm Rejection: ${selectedCandidate.name}`}
+
+          {activeModal === 'select' &&
+            `Select Candidate: ${selectedCandidate.name}`}
+
+          {activeModal === 'newRole' &&
+            'Post New Job Requisition'}
+
+          {activeModal === 'roleDetails' &&
+            selectedRoleDetails &&
+            `Role Details: ${selectedRoleDetails.title}`}
+        </h3>
+
+        <button onClick={() => setActiveModal(null)}>
+          <X className="w-4 h-4 text-slate-400 dark:text-gray-400" />
+        </button>
+      </div>
+
+      {/* ================= ROLE DETAILS ================= */}
+      {activeModal === 'roleDetails' && selectedRoleDetails && (
+        <div className="space-y-4 text-xs max-h-[70vh] overflow-y-auto">
+
+          <div>
+            <p className="text-lg font-black">
+              {selectedRoleDetails.title}
+            </p>
+
+            <p className="text-indigo-500 font-bold mt-1">
+              Req ID: {selectedRoleDetails.id}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-[#131B2A]">
+              <p className="text-slate-400">
+                Department
+              </p>
+
+              <p className="font-bold mt-1">
+                {selectedRoleDetails.department || 'Not specified'}
+              </p>
             </div>
 
-            {activeModal === 'schedule' && (
-              <div className="space-y-3 text-xs">
-                <p className="text-slate-500 dark:text-gray-400">Select interview date and invite hiring manager:</p>
-                <input type="date" defaultValue="2026-09-10" className={`w-full p-2.5 rounded-xl border ${darkMode ? 'bg-[#131B2A] border-[#1D2636]' : 'bg-slate-50 border-slate-200'}`} />
-                <button onClick={() => { setActiveModal(null); triggerToast(`Interview Invite sent to ${selectedCandidate.name}!`); }} className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl">Confirm & Send Invite</button>
-              </div>
-            )}
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-[#131B2A]">
+              <p className="text-slate-400">
+                Location
+              </p>
 
-            {activeModal === 'reject' && (
-              <div className="space-y-3 text-xs">
-                <p className="text-slate-500 dark:text-gray-400">Send automated polite rejection email with feedback?</p>
-                <button onClick={() => { setActiveModal(null); triggerToast(`Candidate ${selectedCandidate.name} moved to Rejected.`); }} className="w-full py-2.5 bg-rose-600 text-white font-bold rounded-xl">Confirm Rejection</button>
-              </div>
-            )}
+              <p className="font-bold mt-1">
+                {selectedRoleDetails.location || 'Not specified'}
+              </p>
+            </div>
 
-            {activeModal === 'newRole' && (
-              <div className="space-y-3 text-xs">
-                <input type="text" value={newRoleTitle} onChange={(event) => setNewRoleTitle(event.target.value)} placeholder="Job Title (e.g. Senior DevOps Engineer)" className={`w-full p-2.5 rounded-xl border ${darkMode ? 'bg-[#131B2A] border-[#1D2636]' : 'bg-slate-50 border-slate-200'}`} />
-                <input type="text" value={newRoleDepartment} onChange={(event) => setNewRoleDepartment(event.target.value)} placeholder="Department" className={`w-full p-2.5 rounded-xl border ${darkMode ? 'bg-[#131B2A] border-[#1D2636]' : 'bg-slate-50 border-slate-200'}`} />
-                <input type="text" value={newRoleLocation} onChange={(event) => setNewRoleLocation(event.target.value)} placeholder="Location" className={`w-full p-2.5 rounded-xl border ${darkMode ? 'bg-[#131B2A] border-[#1D2636]' : 'bg-slate-50 border-slate-200'}`} />
-                <button onClick={handleCreateRole} className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl">Create Role</button>
-              </div>
-            )}
           </div>
+
+          {/* JOB DESCRIPTION */}
+          <div>
+            <p className="font-extrabold mb-2">
+              Job Description
+            </p>
+
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-[#131B2A] whitespace-pre-wrap leading-relaxed">
+              {selectedRoleDetails.profile?.description ||
+                selectedRoleDetails.description ||
+                'No job description available.'}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-[#131B2A]">
+              <p className="text-slate-400">Required Skills</p>
+              <p className="font-bold mt-1">
+                {(selectedRoleDetails.profile?.required_skills?.length
+                  ? selectedRoleDetails.profile.required_skills
+                  : selectedRoleDetails.required_skills || []).join(', ') || 'Not specified'}
+              </p>
+            </div>
+
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-[#131B2A]">
+              <p className="text-slate-400">Experience</p>
+              <p className="font-bold mt-1">
+                {selectedRoleDetails.profile?.minimum_experience_years
+                  ? `${selectedRoleDetails.profile.minimum_experience_years}+ years`
+                  : selectedRoleDetails.profile?.experience_domains?.join(', ')
+                    || selectedRoleDetails.experience
+                    || 'Not specified'}
+              </p>
+            </div>
+          </div>
+
+          {/* CANDIDATES */}
+          <div>
+
+            <div className="flex items-center justify-between mb-2">
+              <p className="font-extrabold">
+                Analyzed Candidates
+              </p>
+
+              <span className="px-2 py-1 rounded-full bg-indigo-500/10 text-indigo-500 font-bold">
+                {
+                  candidatesPipelineList.filter(
+                    (candidate) =>
+                      candidate.job_id === selectedRoleDetails.id
+                  ).length
+                }
+              </span>
+            </div>
+
+            <div className="space-y-2">
+
+              {candidatesPipelineList
+                .filter(
+                  (candidate) =>
+                    candidate.job_id === selectedRoleDetails.id
+                )
+                .map((candidate) => (
+
+                  <button
+                    key={candidate.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedCandidate(candidate);
+                      setActiveModal(null);
+                      setActiveTab('Dashboard');
+                    }}
+                    className="w-full p-3 rounded-xl border border-slate-200 dark:border-gray-700/40 flex items-center justify-between text-left hover:border-indigo-500/50 transition"
+                  >
+
+                    <div>
+                      <p className="font-bold">
+                        {candidate.name}
+                      </p>
+
+                      <p className="text-slate-400">
+                        {candidate.email}
+                      </p>
+                    </div>
+
+                    <div className="text-right">
+                      <p className="font-black text-emerald-500">
+                        {candidate.score}
+                      </p>
+
+                      <p className="text-slate-400">
+                        {candidate.stage}
+                      </p>
+                    </div>
+
+                  </button>
+
+                ))}
+
+              {candidatesPipelineList.filter(
+                (candidate) =>
+                  candidate.job_id === selectedRoleDetails.id
+              ).length === 0 && (
+
+                <p className="text-slate-400 italic py-3">
+                  No candidates analyzed for this role yet.
+                </p>
+
+              )}
+
+            </div>
+          </div>
+
+          {/* PDF BUTTON */}
+          <button
+            onClick={async () => {
+              try {
+                const response = await fetch(`/api/jobs/${encodeURIComponent(selectedRoleDetails.id)}/pdf`, {
+                  credentials: 'include',
+                });
+
+                if (!response.ok) {
+                  const data = await response.json().catch(() => ({}));
+                  throw new Error(data.error || 'Failed to export job description PDF.');
+                }
+
+                const blob = await response.blob();
+                const downloadUrl = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = downloadUrl;
+                link.download = `RMI_AI_${selectedRoleDetails.title}_${selectedRoleDetails.id}.pdf`;
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                URL.revokeObjectURL(downloadUrl);
+              } catch (error) {
+                triggerToast(error.message || 'Failed to export job description PDF.');
+              }
+            }}
+            className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold"
+          >
+            Export Job Description PDF
+          </button>
+
+        </div>
+      )}
+
+      {/* ================= SCHEDULE INTERVIEW ================= */}
+      {activeModal === 'schedule' && (
+        <div className="space-y-3 text-xs">
+
+          <p className="text-slate-500 dark:text-gray-400">
+            Select interview date and invite hiring manager:
+          </p>
+
+          <input
+            type="date"
+            defaultValue={new Date().toISOString().split('T')[0]}
+            id="interview-date"
+            className={`w-full p-2.5 rounded-xl border ${
+              darkMode
+                ? 'bg-[#131B2A] border-[#1D2636]'
+                : 'bg-slate-50 border-slate-200'
+            }`}
+          />
+
+          <button
+            onClick={async () => {
+
+              const interviewDate =
+                document.getElementById('interview-date').value;
+
+              if (!interviewDate) {
+                triggerToast('Please select an interview date.');
+                return;
+              }
+
+              try {
+
+                const response = await fetch(
+                  '/api/interviews/schedule',
+                  {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                      candidate_id: selectedCandidate.id,
+                      candidate_name: selectedCandidate.name,
+                      candidate_email: selectedCandidate.email,
+                      job_id: selectedCandidate.reqId,
+                      job_title: selectedCandidate.role,
+                      interview_date: interviewDate,
+                    }),
+                  }
+                );
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                  throw new Error(
+                    data.error ||
+                      'Failed to schedule interview.'
+                  );
+                }
+
+                setSelectedCandidate((prev) => ({
+                  ...prev,
+                  stage: 'Interview',
+                }));
+
+                setCandidatesPipelineList((prev) =>
+                  prev.map((candidate) =>
+                    candidate.id === selectedCandidate.id
+                      ? {
+                          ...candidate,
+                          stage: 'Interview',
+                        }
+                      : candidate
+                  )
+                );
+
+                setActiveModal(null);
+
+                triggerToast(
+                  `Interview scheduled for ${selectedCandidate.name}!`
+                );
+
+              } catch (error) {
+
+                console.error(
+                  'Interview scheduling failed:',
+                  error
+                );
+
+                triggerToast(
+                  error.message ||
+                    'Failed to schedule interview.'
+                );
+              }
+            }}
+            className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl"
+          >
+            Confirm & Send Invite
+          </button>
+
+        </div>
+      )}
+
+      {/* ================= REJECT ================= */}
+      {activeModal === 'reject' && (
+        <div className="space-y-3 text-xs">
+
+          <p className="text-slate-500 dark:text-gray-400">
+            Send automated polite rejection email with feedback?
+          </p>
+
+          <button
+            onClick={async () => {
+
+              try {
+
+                const response = await fetch(
+                  '/api/applications/reject',
+                  {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                      candidate_id: selectedCandidate.id,
+                      candidate_name: selectedCandidate.name,
+                      candidate_email: selectedCandidate.email,
+                      job_title: selectedCandidate.role,
+                    }),
+                  }
+                );
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                  throw new Error(
+                    data.error ||
+                      'Failed to reject candidate.'
+                  );
+                }
+
+                setCandidatesPipelineList((prev) =>
+                  prev.map((candidate) =>
+                    candidate.id === selectedCandidate.id
+                      ? {
+                          ...candidate,
+                          stage: 'Rejected',
+                        }
+                      : candidate
+                  )
+                );
+
+                setSelectedCandidate((prev) => ({
+                  ...prev,
+                  stage: 'Rejected',
+                }));
+
+                setActiveModal(null);
+
+                triggerToast(
+                  data.email_status === 'sent'
+                    ? `Candidate rejected and email sent to ${selectedCandidate.name}.`
+                    : 'Candidate rejected, but email could not be sent.'
+                );
+
+              } catch (error) {
+
+                triggerToast(
+                  error.message ||
+                    'Failed to reject candidate.'
+                );
+
+              }
+
+            }}
+            className="w-full py-2.5 bg-rose-600 text-white font-bold rounded-xl"
+          >
+            Confirm Rejection
+          </button>
+
+        </div>
+      )}
+
+      {/* ================= SELECT ================= */}
+      {activeModal === 'select' && (
+        <div className="space-y-3 text-xs">
+
+          <p className="text-slate-500 dark:text-gray-400">
+            Select {selectedCandidate.name} for this position and send a confirmation email?
+          </p>
+
+          <button
+            onClick={async () => {
+
+              try {
+
+                const response = await fetch(
+                  '/api/applications/select',
+                  {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                      candidate_id: selectedCandidate.id,
+                      candidate_name: selectedCandidate.name,
+                      candidate_email: selectedCandidate.email,
+                      job_title: selectedCandidate.role,
+                    }),
+                  }
+                );
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                  throw new Error(
+                    data.error ||
+                      'Failed to select candidate.'
+                  );
+                }
+
+                setCandidatesPipelineList((prev) =>
+                  prev.map((candidate) =>
+                    candidate.id === selectedCandidate.id
+                      ? {
+                          ...candidate,
+                          stage: 'Selected',
+                        }
+                      : candidate
+                  )
+                );
+
+                setSelectedCandidate((prev) => ({
+                  ...prev,
+                  stage: 'Selected',
+                }));
+
+                setActiveModal(null);
+
+                triggerToast(
+                  data.email_status === 'sent'
+                    ? `🎉 ${selectedCandidate.name} selected and notified!`
+                    : 'Candidate selected, but email could not be sent.'
+                );
+
+              } catch (error) {
+
+                triggerToast(
+                  error.message ||
+                    'Failed to select candidate.'
+                );
+
+              }
+
+            }}
+            className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl"
+          >
+            Confirm Selection
+          </button>
+
+        </div>
+      )}
+
+      {/* ================= NEW ROLE ================= */}
+      {activeModal === 'newRole' && (
+        <div className="space-y-3 text-xs max-h-[70vh] overflow-y-auto">
+
+          <input
+            type="text"
+            value={newRoleTitle}
+            onChange={(event) =>
+              setNewRoleTitle(event.target.value)
+            }
+            placeholder="Job Title (e.g. Senior DevOps Engineer)"
+            className={`w-full p-2.5 rounded-xl border ${
+              darkMode
+                ? 'bg-[#131B2A] border-[#1D2636]'
+                : 'bg-slate-50 border-slate-200'
+            }`}
+          />
+
+          <input
+            type="text"
+            value={newRoleExperience}
+            onChange={(event) => setNewRoleExperience(event.target.value)}
+            placeholder="Experience Required (e.g. 5+ years)"
+            className={`w-full p-2.5 rounded-xl border ${
+              darkMode
+                ? 'bg-[#131B2A] border-[#1D2636]'
+                : 'bg-slate-50 border-slate-200'
+            }`}
+          />
+
+          <input
+            type="text"
+            value={newRoleSkills}
+            onChange={(event) => setNewRoleSkills(event.target.value)}
+            placeholder="Key Skills (comma separated)"
+            className={`w-full p-2.5 rounded-xl border ${
+              darkMode
+                ? 'bg-[#131B2A] border-[#1D2636]'
+                : 'bg-slate-50 border-slate-200'
+            }`}
+          />
+
+          <textarea
+            value={newRoleAdditionalInfo}
+            onChange={(event) => setNewRoleAdditionalInfo(event.target.value)}
+            placeholder="Additional Information"
+            rows={3}
+            className={`w-full p-2.5 rounded-xl border resize-y ${
+              darkMode
+                ? 'bg-[#131B2A] border-[#1D2636]'
+                : 'bg-slate-50 border-slate-200'
+            }`}
+          />
+
+          <input
+            type="text"
+            value={newRoleDepartment}
+            onChange={(event) =>
+              setNewRoleDepartment(event.target.value)
+            }
+            placeholder="Department"
+            className={`w-full p-2.5 rounded-xl border ${
+              darkMode
+                ? 'bg-[#131B2A] border-[#1D2636]'
+                : 'bg-slate-50 border-slate-200'
+            }`}
+          />
+
+          <input
+            type="text"
+            value={newRoleLocation}
+            onChange={(event) =>
+              setNewRoleLocation(event.target.value)
+            }
+            placeholder="Location"
+            className={`w-full p-2.5 rounded-xl border ${
+              darkMode
+                ? 'bg-[#131B2A] border-[#1D2636]'
+                : 'bg-slate-50 border-slate-200'
+            }`}
+          />
+
+          <button
+            onClick={handleGenerateJobDescription}
+            disabled={isGeneratingJD}
+            className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl disabled:opacity-60"
+          >
+            {isGeneratingJD ? 'Generating JD...' : newRoleDescription ? 'Regenerate' : 'Generate with AI'}
+          </button>
+
+          <textarea
+            value={newRoleDescription}
+            onChange={(event) => setNewRoleDescription(event.target.value)}
+            placeholder="Generated job description will appear here and can be edited before posting."
+            rows={12}
+            className={`w-full p-2.5 rounded-xl border resize-y leading-relaxed ${
+              darkMode
+                ? 'bg-[#131B2A] border-[#1D2636]'
+                : 'bg-slate-50 border-slate-200'
+            }`}
+          />
+
+          <div className="flex gap-2">
+            <button
+              onClick={handleCreateRole}
+              disabled={isCreatingRole}
+              className="flex-1 py-2.5 bg-indigo-600 text-white font-bold rounded-xl disabled:opacity-60"
+            >
+              {isCreatingRole ? 'Posting Job...' : 'Post Job'}
+            </button>
+            <button
+              onClick={() => setActiveModal(null)}
+              className="flex-1 py-2.5 border border-slate-200 dark:border-gray-700 text-slate-600 dark:text-gray-300 font-bold rounded-xl"
+            >
+              Cancel
+            </button>
+          </div>
+
         </div>
       )}
 
     </div>
+  </div>
+)}
+  </div>
   );
 }
