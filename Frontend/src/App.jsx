@@ -409,7 +409,7 @@ const hasLoadedAppsRef = useRef(false);
     if (!currentUser || currentUser.role !== 'Recruiter') return;
 
     // 1. Fetch Open Roles Once
-    fetch('/api/jobs', { credentials: 'include' })
+    fetch(`${import.meta.env.vite_api_url}/jobs`, { credentials: 'include' })
       .then((res) => res.json())
       .then((data) => {
         const jobs = data.jobs || [];
@@ -425,7 +425,7 @@ const hasLoadedAppsRef = useRef(false);
     // 2. Fetch Applications ONCE (guards against infinite loops!)
     if (!hasLoadedAppsRef.current) {
       hasLoadedAppsRef.current = true;
-      fetch('/api/applications', { credentials: 'include' })
+      fetch(`${import.meta.env.vite_api_url}/applications`, { credentials: 'include' })
         .then((res) => res.json())
         .then((data) => {
           const dbCandidates = data.candidates || [];
@@ -464,7 +464,7 @@ const hasLoadedAppsRef = useRef(false);
     if (!currentUser || currentUser.role !== 'Recruiter' || hasLoadedAppsRef.current) return;
     hasLoadedAppsRef.current = true;
 
-    fetch('/api/applications', { credentials: 'include' })
+    fetch(`${import.meta.env.vite_api_url}/applications`, { credentials: 'include' })
       .then((res) => res.json())
       .then((data) => {
         const dbCandidates = data.candidates || [];
@@ -526,7 +526,7 @@ const hasLoadedAppsRef = useRef(false);
         additional_information: newRoleAdditionalInfo,
         description: newRoleDescription,
       });
-      const response = await fetch('/api/jobs', { credentials: 'include' });
+      const response = await fetch(`${import.meta.env.vite_api_url}/jobs`, { credentials: 'include' });
       const data = await response.json();
       setAvailableJobs(data.jobs || []);
       setNewRoleTitle('');
@@ -551,7 +551,7 @@ const hasLoadedAppsRef = useRef(false);
 
     setIsGeneratingJD(true);
     try {
-      const response = await fetch('/api/roles/generate-description', {
+      const response = await fetch(`${import.meta.env.vite_api_url}/roles/generate-description`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
