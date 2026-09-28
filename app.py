@@ -110,22 +110,30 @@ try:
     USERS = json.loads(USER_STORE.read_text(encoding="utf-8")) if USER_STORE.exists() else {}
 except (OSError, json.JSONDecodeError):
     USERS = {}
+
+allowed_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+frontend_url = os.getenv("FRONTEND_URL")
+
+if frontend_url:
+    allowed_origins.append(frontend_url)
+
 CORS(
     app,
     resources={
         r"/api/*": {
-            "origins": [
-                "http://localhost:3000",
-                "http://127.0.0.1:3000",
-                "http://localhost:5173",
-                "http://127.0.0.1:5173",
-            ]
+            "origins": allowed_origins
         }
     },
     supports_credentials=True,
 )
-app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
 
+app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
 
 def _allowed_file(filename):
 	return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
